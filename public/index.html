@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Winner7 - Exposure Alerts</title>
+  <title>Book Guard - Exposure Alerts</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -117,7 +117,7 @@
 <body>
   <div class="container">
     <div class="card">
-      <h1>Winner7</h1>
+      <h1>Book Guard</h1>
       <p class="subtitle">Exposure monitoring & Telegram alerts</p>
 
       <div class="info-box">
@@ -166,7 +166,7 @@
     fetch('/health').then(() => {
       const el = document.getElementById('bot-link');
       // Bot username is rendered server-side via the page or we just show generic
-      el.textContent = '@' + (window.__BOT_USERNAME || 'Winner7Bot');
+      el.textContent = '@' + (window.__BOT_USERNAME || 'book_guard_bot');
     });
 
     document.getElementById('regForm').addEventListener('submit', async (e) => {

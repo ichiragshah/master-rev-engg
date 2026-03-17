@@ -1,7 +1,7 @@
 {
-  "name": "winner7-saas",
+  "name": "book-guard",
   "version": "1.0.0",
-  "description": "Betting exposure monitoring SaaS with Telegram alerts",
+  "description": "Book Guard - Exposure monitoring SaaS with Telegram alerts",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
