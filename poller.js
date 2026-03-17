@@ -98,7 +98,7 @@ async function pollClient(client) {
     const expData = await fetchExposure(token, userId);
     const netExposure = expData.data?.netExposure ?? 0;
 
-    if (Math.abs(netExposure) > threshold && canAlert(chatId, 'total_exposure')) {
+    if (Math.abs(netExposure) >= threshold && canAlert(chatId, 'total_exposure')) {
       const prev = lastExposures.get(client.username) ?? 0;
       const change = netExposure - prev;
       const changeStr = change >= 0 ? `+${formatINR(change)}` : formatINR(change);
@@ -144,7 +144,7 @@ async function pollClient(client) {
       const bets = betData.data || [];
       for (const bet of bets) {
         const stake = bet.stake || bet.amount || 0;
-        if (stake > threshold) {
+        if (stake >= threshold) {
           const betKey = `bet_${bet._id || bet.id || Date.now()}`;
           if (canAlert(chatId, betKey)) {
             await sendMessage(chatId,
