@@ -1,8 +1,7 @@
-const fetch = require('node-fetch');
 const { getAllActiveClients } = require('./db');
 const { ensureToken } = require('./auth');
 const { sendMessage } = require('./telegram');
-const { BROWSER_HEADERS } = require('./headers');
+const { proxyPost } = require('./proxy-fetch');
 
 const EXPOSURE_URL = 'https://sportsbookbackend.playexchwin.com/api/Book/getMemberNetExposure';
 const MARKETS_URL = 'https://netexposure.playexchwin.com/api/Book/getBooksForBackend';
@@ -11,7 +10,7 @@ const BETS_URL = 'https://artemis-bookmaker.playexchwin.com/api/bettickerMapping
 const POLL_INTERVAL = 60 * 1000;
 const COOLDOWN = 5 * 60 * 1000;
 
-// In-memory cooldown tracker: key → last alert timestamp
+// In-memory cooldown tracker: key -> last alert timestamp
 const cooldowns = new Map();
 // Last known exposure per client for change tracking
 const lastExposures = new Map();
@@ -40,23 +39,14 @@ function formatINR(n) {
 }
 
 async function fetchExposure(token, userId) {
-  const res = await fetch(EXPOSURE_URL, {
-    method: 'POST',
-    headers: { ...BROWSER_HEADERS, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ _id: userId, _accessToken: token }),
-  });
+  const res = await proxyPost(EXPOSURE_URL, { _id: userId, _accessToken: token });
   return res.json();
 }
 
 async function fetchMarkets(token, userId, client) {
-  const res = await fetch(MARKETS_URL, {
-    method: 'POST',
-    headers: {
-      ...BROWSER_HEADERS,
-      'Content-Type': 'application/json',
-      'x-key-id': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
+  const res = await proxyPost(
+    MARKETS_URL,
+    {
       _accessToken: token,
       filter: {
         user: userId,
@@ -69,27 +59,24 @@ async function fetchMarkets(token, userId, client) {
       },
       selectedType: client.book_view || 'Total Book',
       page: 1,
-    }),
-  });
+    },
+    { 'x-key-id': `Bearer ${token}` }
+  );
   return res.json();
 }
 
 async function fetchBets(token) {
-  const res = await fetch(BETS_URL, {
-    method: 'POST',
-    headers: {
-      ...BROWSER_HEADERS,
-      'Content-Type': 'application/json',
-      'x-key-id': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
+  const res = await proxyPost(
+    BETS_URL,
+    {
       currencyType: 'All',
       eventName: 'All',
       page: 1,
       subGame: 'All',
       marketType: 'All',
-    }),
-  });
+    },
+    { 'x-key-id': `Bearer ${token}` }
+  );
   return res.json();
 }
 

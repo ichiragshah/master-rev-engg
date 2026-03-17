@@ -1,7 +1,6 @@
-const fetch = require('node-fetch');
 const { decrypt } = require('./crypto');
 const { updateClientToken } = require('./db');
-const { BROWSER_HEADERS } = require('./headers');
+const { proxyPost } = require('./proxy-fetch');
 
 const LOGIN_URL = 'https://user-backend-api.playexchwin.com/api/member/memberLogin';
 
@@ -12,17 +11,10 @@ function decodeJWT(token) {
 }
 
 async function login(username, password) {
-  const res = await fetch(LOGIN_URL, {
-    method: 'POST',
-    headers: {
-      ...BROWSER_HEADERS,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      username,
-      password,
-      siteOrigin: 'playexch.co',
-    }),
+  const res = await proxyPost(LOGIN_URL, {
+    username,
+    password,
+    siteOrigin: 'playexch.co',
   });
 
   const text = await res.text();

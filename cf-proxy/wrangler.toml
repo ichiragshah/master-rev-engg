@@ -1,0 +1,6 @@
+name = "book-guard-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+PROXY_SECRET = "bg-proxy-2026-secret"
