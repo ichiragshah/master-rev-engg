@@ -17,7 +17,7 @@ app.get('/health', (req, res) => {
 // Registration
 app.post('/register', async (req, res) => {
   try {
-    const { name, username, password, telegram_username, threshold, alert_type } = req.body;
+    const { name, username, password, telegram_username, threshold, alert_type, sports, book_view } = req.body;
 
     if (!username || !password || !telegram_username) {
       return res.status(400).json({ success: false, message: 'Username, password, and Telegram username are required.' });
@@ -32,6 +32,8 @@ app.post('/register', async (req, res) => {
       telegram_username: telegram_username.replace('@', ''),
       threshold: parseInt(threshold, 10) || 50000,
       alert_type: alert_type || 'exposure_only',
+      sports: sports || 'All',
+      book_view: book_view || 'Total Book',
     });
 
     const botUsername = process.env.BOT_USERNAME || 'your_bot';

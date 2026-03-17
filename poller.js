@@ -47,7 +47,7 @@ async function fetchExposure(token, userId) {
   return res.json();
 }
 
-async function fetchMarkets(token, userId) {
+async function fetchMarkets(token, userId, client) {
   const res = await fetch(MARKETS_URL, {
     method: 'POST',
     headers: {
@@ -61,11 +61,11 @@ async function fetchMarkets(token, userId) {
         eventname: 'All',
         level: 'Master',
         status: { $ne: 'Done' },
-        eventType: 'Cricket',
+        eventType: client.sports || 'All',
         bookmakerSessionFlag: 'all',
         _accessToken: token,
       },
-      selectedType: 'Total Book',
+      selectedType: client.book_view || 'Total Book',
       page: 1,
     }),
   });
@@ -126,7 +126,7 @@ async function pollClient(client) {
   // 2. Market breakdown (exposure_and_markets or all)
   if (alertType === 'exposure_and_markets' || alertType === 'all') {
     try {
-      const mkData = await fetchMarkets(token, userId);
+      const mkData = await fetchMarkets(token, userId, client);
       const books = mkData.data || [];
       const overThreshold = books
         .filter(b => Math.abs(b.netExposure || 0) > threshold)

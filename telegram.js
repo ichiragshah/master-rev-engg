@@ -49,7 +49,7 @@ async function handleUpdate(update) {
     const linked = await updateClientChatId(tgUsername, chatId);
     if (linked) {
       await sendMessage(chatId,
-        `Linked! Your Telegram is now connected.\n\nCommands:\n/status - View your config\n/threshold <amount> - Set alert threshold\n/alerts exposure - Net exposure only\n/alerts markets - Exposure + markets\n/alerts all - Everything\n/pause - Pause alerts\n/resume - Resume alerts`
+        `Linked! Your Telegram is now connected.\n\nCommands:\n/status - View your config\n/threshold <amount> - Set alert threshold\n/alerts exposure|markets|all - Alert type\n/sports all|cricket|tennis|soccer - Sports filter\n/book total|mypt - Book view\n/pause - Pause alerts\n/resume - Resume alerts`
       );
     } else {
       await sendMessage(chatId,
@@ -73,7 +73,7 @@ async function handleUpdate(update) {
       'all': 'Everything',
     };
     await sendMessage(chatId,
-      `<b>Status</b>\nUser: ${client.username}\nThreshold: Rs ${client.threshold.toLocaleString('en-IN')}\nAlerts: ${alertLabels[client.alert_type] || client.alert_type}\nStatus: ${status}`
+      `<b>Your Settings</b>\nUser: ${client.username}\nThreshold: Rs ${client.threshold.toLocaleString('en-IN')}\nAlerts: ${alertLabels[client.alert_type] || client.alert_type}\nSports: ${client.sports || 'All'}\nBook View: ${client.book_view || 'Total Book'}\nStatus: ${status}`
     );
     return;
   }
@@ -104,6 +104,40 @@ async function handleUpdate(update) {
     }
     await updateClientConfig(chatId, 'alert_type', typeMap[type]);
     await sendMessage(chatId, `Alert type set to: <b>${typeMap[type]}</b>`);
+    return;
+  }
+
+  if (text.startsWith('/sports')) {
+    const parts = text.split(/\s+/);
+    const sport = (parts[1] || '').toLowerCase();
+    const sportsMap = {
+      'all': 'All',
+      'cricket': 'Cricket',
+      'tennis': 'Tennis',
+      'soccer': 'Soccer',
+    };
+    if (!sport || !sportsMap[sport]) {
+      await sendMessage(chatId, 'Usage:\n/sports all\n/sports cricket\n/sports tennis\n/sports soccer');
+      return;
+    }
+    await updateClientConfig(chatId, 'sports', sportsMap[sport]);
+    await sendMessage(chatId, `Sports filter set to: <b>${sportsMap[sport]}</b>`);
+    return;
+  }
+
+  if (text.startsWith('/book')) {
+    const parts = text.split(/\s+/);
+    const view = (parts[1] || '').toLowerCase();
+    const bookMap = {
+      'total': 'Total Book',
+      'mypt': 'My PT',
+    };
+    if (!view || !bookMap[view]) {
+      await sendMessage(chatId, 'Usage:\n/book total - Total Book\n/book mypt - My PT');
+      return;
+    }
+    await updateClientConfig(chatId, 'book_view', bookMap[view]);
+    await sendMessage(chatId, `Book view set to: <b>${bookMap[view]}</b>`);
     return;
   }
 

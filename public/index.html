@@ -64,6 +64,25 @@
     input::placeholder { color: #555; }
     select { cursor: pointer; }
     select option { background: #111; }
+    .checkbox-group, .radio-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .cb, .rb {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #ccc;
+      cursor: pointer;
+      padding: 6px 10px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 6px;
+    }
+    .cb input, .rb input { accent-color: #4a9eff; cursor: pointer; }
+    .hint { color: #666; font-size: 11px; }
     .info-box {
       background: #0d1b2a;
       border: 1px solid #1b3a5c;
@@ -151,6 +170,24 @@
           </select>
         </div>
         <div class="field">
+          <label>Monitor Sports</label>
+          <div class="checkbox-group" id="sportsGroup">
+            <label class="cb"><input type="checkbox" name="sport" value="All" checked> All</label>
+            <label class="cb"><input type="checkbox" name="sport" value="Cricket"> Cricket</label>
+            <label class="cb"><input type="checkbox" name="sport" value="Soccer"> Soccer</label>
+            <label class="cb"><input type="checkbox" name="sport" value="Tennis"> Tennis</label>
+            <label class="cb"><input type="checkbox" name="sport" value="Horse Racing"> Horse Racing</label>
+            <label class="cb"><input type="checkbox" name="sport" value="Greyhound Racing"> Greyhound Racing</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Book View</label>
+          <div class="radio-group">
+            <label class="rb"><input type="radio" name="book_view" value="Total Book" checked> Total Book <span class="hint">Your full book</span></label>
+            <label class="rb"><input type="radio" name="book_view" value="My PT"> My PT <span class="hint">Your percentage share only</span></label>
+          </div>
+        </div>
+        <div class="field">
           <label>Telegram Username * (without @)</label>
           <input type="text" name="telegram_username" required placeholder="your_telegram">
         </div>
@@ -169,6 +206,20 @@
       el.textContent = '@' + (window.__BOT_USERNAME || 'book_guard_bot');
     });
 
+    // Sports checkbox toggle: All unchecks others, others uncheck All
+    document.getElementById('sportsGroup').addEventListener('change', (e) => {
+      const boxes = document.querySelectorAll('#sportsGroup input[type=checkbox]');
+      const allBox = boxes[0];
+      if (e.target.value === 'All' && e.target.checked) {
+        boxes.forEach(b => { if (b !== allBox) b.checked = false; });
+      } else if (e.target.value !== 'All' && e.target.checked) {
+        allBox.checked = false;
+      }
+      // If nothing checked, re-check All
+      const anyChecked = [...boxes].some(b => b.checked);
+      if (!anyChecked) allBox.checked = true;
+    });
+
     document.getElementById('regForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button');
@@ -179,7 +230,11 @@
       msg.className = 'msg';
       msg.style.display = 'none';
 
-      const data = Object.fromEntries(new FormData(e.target));
+      const fd = new FormData(e.target);
+      const sports = fd.getAll('sport').join(',') || 'All';
+      const data = Object.fromEntries(fd);
+      delete data.sport;
+      data.sports = sports;
 
       try {
         const res = await fetch('/register', {
