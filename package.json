@@ -1,0 +1,19 @@
+{
+  "name": "winner7-saas",
+  "version": "1.0.0",
+  "description": "Betting exposure monitoring SaaS with Telegram alerts",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.12.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

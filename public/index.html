@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Winner7 - Exposure Alerts</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 480px;
+      padding: 20px;
+    }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 32px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+    .subtitle {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .field {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #aaa;
+      margin-bottom: 6px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus {
+      border-color: #4a9eff;
+    }
+    input::placeholder { color: #555; }
+    select { cursor: pointer; }
+    select option { background: #111; }
+    .info-box {
+      background: #0d1b2a;
+      border: 1px solid #1b3a5c;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #7bb8e0;
+    }
+    .info-box b { color: #9dd1f5; }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #4a9eff;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #3a8eef; }
+    button:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+    .msg {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+    }
+    .msg.success {
+      display: block;
+      background: #0a2e1a;
+      border: 1px solid #1a5c3a;
+      color: #6fcf97;
+    }
+    .msg.error {
+      display: block;
+      background: #2e0a0a;
+      border: 1px solid #5c1a1a;
+      color: #f07070;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Winner7</h1>
+      <p class="subtitle">Exposure monitoring & Telegram alerts</p>
+
+      <div class="info-box">
+        <b>Step 1:</b> Message <b id="bot-link">the bot</b> on Telegram and send <b>/start</b><br>
+        <b>Step 2:</b> Fill in the form below and submit
+      </div>
+
+      <form id="regForm">
+        <div class="field">
+          <label>Your Name</label>
+          <input type="text" name="name" placeholder="John Doe">
+        </div>
+        <div class="field">
+          <label>Platform Username *</label>
+          <input type="text" name="username" required placeholder="your_username">
+        </div>
+        <div class="field">
+          <label>Platform Password *</label>
+          <input type="password" name="password" required placeholder="your_password">
+        </div>
+        <div class="field">
+          <label>Alert Threshold (Rs)</label>
+          <input type="number" name="threshold" value="50000" min="1000">
+        </div>
+        <div class="field">
+          <label>Alert Type</label>
+          <select name="alert_type">
+            <option value="exposure_only">Net Exposure Only</option>
+            <option value="exposure_and_markets">Exposure + Markets</option>
+            <option value="all">Everything</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Telegram Username * (without @)</label>
+          <input type="text" name="telegram_username" required placeholder="your_telegram">
+        </div>
+        <button type="submit">Register</button>
+      </form>
+
+      <div id="msg" class="msg"></div>
+    </div>
+  </div>
+
+  <script>
+    // Show bot username in instructions
+    fetch('/health').then(() => {
+      const el = document.getElementById('bot-link');
+      // Bot username is rendered server-side via the page or we just show generic
+      el.textContent = '@' + (window.__BOT_USERNAME || 'Winner7Bot');
+    });
+
+    document.getElementById('regForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      const msg = document.getElementById('msg');
+
+      btn.disabled = true;
+      btn.textContent = 'Registering...';
+      msg.className = 'msg';
+      msg.style.display = 'none';
+
+      const data = Object.fromEntries(new FormData(e.target));
+
+      try {
+        const res = await fetch('/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        const json = await res.json();
+
+        msg.textContent = json.message;
+        msg.className = json.success ? 'msg success' : 'msg error';
+        msg.style.display = 'block';
+
+        if (json.success) e.target.reset();
+      } catch (err) {
+        msg.textContent = 'Network error. Please try again.';
+        msg.className = 'msg error';
+        msg.style.display = 'block';
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Register';
+    });
+  </script>
+</body>
+</html>
