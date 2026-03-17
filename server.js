@@ -1,7 +1,6 @@
 const express = require('express');
 const path = require('path');
 const { initDB, registerClient, getAllClients } = require('./db');
-const { login } = require('./auth');
 const { encrypt } = require('./crypto');
 const { setWebhook, handleUpdate } = require('./telegram');
 const { startPoller } = require('./poller');
@@ -24,14 +23,6 @@ app.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username, password, and Telegram username are required.' });
     }
 
-    // Validate credentials by attempting login
-    let tokenData;
-    try {
-      tokenData = await login(username, password);
-    } catch (err) {
-      return res.status(401).json({ success: false, message: `Login failed: ${err.message}` });
-    }
-
     const password_enc = encrypt(password);
 
     const client = await registerClient({
@@ -42,10 +33,6 @@ app.post('/register', async (req, res) => {
       threshold: parseInt(threshold, 10) || 50000,
       alert_type: alert_type || 'exposure_only',
     });
-
-    // Store the token we just got
-    const { updateClientToken } = require('./db');
-    await updateClientToken(username, tokenData.token, tokenData.exp, tokenData.userId);
 
     const botUsername = process.env.BOT_USERNAME || 'your_bot';
     res.json({
