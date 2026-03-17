@@ -2,6 +2,7 @@ const fetch = require('node-fetch');
 const { getAllActiveClients } = require('./db');
 const { ensureToken } = require('./auth');
 const { sendMessage } = require('./telegram');
+const { BROWSER_HEADERS } = require('./headers');
 
 const EXPOSURE_URL = 'https://sportsbookbackend.playexchwin.com/api/Book/getMemberNetExposure';
 const MARKETS_URL = 'https://netexposure.playexchwin.com/api/Book/getBooksForBackend';
@@ -41,7 +42,7 @@ function formatINR(n) {
 async function fetchExposure(token, userId) {
   const res = await fetch(EXPOSURE_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...BROWSER_HEADERS, 'Content-Type': 'application/json' },
     body: JSON.stringify({ _id: userId, _accessToken: token }),
   });
   return res.json();
@@ -51,6 +52,7 @@ async function fetchMarkets(token, userId, client) {
   const res = await fetch(MARKETS_URL, {
     method: 'POST',
     headers: {
+      ...BROWSER_HEADERS,
       'Content-Type': 'application/json',
       'x-key-id': `Bearer ${token}`,
     },
@@ -76,6 +78,7 @@ async function fetchBets(token) {
   const res = await fetch(BETS_URL, {
     method: 'POST',
     headers: {
+      ...BROWSER_HEADERS,
       'Content-Type': 'application/json',
       'x-key-id': `Bearer ${token}`,
     },

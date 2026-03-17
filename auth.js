@@ -1,6 +1,7 @@
 const fetch = require('node-fetch');
 const { decrypt } = require('./crypto');
 const { updateClientToken } = require('./db');
+const { BROWSER_HEADERS } = require('./headers');
 
 const LOGIN_URL = 'https://user-backend-api.playexchwin.com/api/member/memberLogin';
 
@@ -14,8 +15,8 @@ async function login(username, password) {
   const res = await fetch(LOGIN_URL, {
     method: 'POST',
     headers: {
+      ...BROWSER_HEADERS,
       'Content-Type': 'application/json',
-      'Referer': 'https://backend.winner7.co/',
     },
     body: JSON.stringify({
       username,
