@@ -1,26 +1,29 @@
 const fetch = require('node-fetch');
+const { BROWSER_HEADERS } = require('./headers');
 
-const PROXY_URL = process.env.CF_PROXY_URL || 'https://book-guard-proxy.botgrid.workers.dev';
-const PROXY_SECRET = process.env.CF_PROXY_SECRET || 'bg-proxy-2026-secret';
+const PROXY_URL = process.env.CF_PROXY_URL;
+const PROXY_SECRET = process.env.CF_PROXY_SECRET;
+const USE_PROXY = PROXY_URL && PROXY_SECRET;
 
 async function proxyPost(targetUrl, body, extraHeaders) {
-  const headers = {
-    'Content-Type': 'application/json',
-    'x-proxy-secret': PROXY_SECRET,
-    'x-target-url': targetUrl,
-  };
+  const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
 
-  if (extraHeaders) {
-    Object.assign(headers, extraHeaders);
+  if (USE_PROXY) {
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-proxy-secret': PROXY_SECRET,
+      'x-target-url': targetUrl,
+    };
+    if (extraHeaders) Object.assign(headers, extraHeaders);
+
+    return fetch(PROXY_URL, { method: 'POST', headers, body: bodyStr });
   }
 
-  const res = await fetch(PROXY_URL, {
-    method: 'POST',
-    headers,
-    body: typeof body === 'string' ? body : JSON.stringify(body),
-  });
+  // Direct call with browser headers
+  const headers = { ...BROWSER_HEADERS, 'Content-Type': 'application/json' };
+  if (extraHeaders) Object.assign(headers, extraHeaders);
 
-  return res;
+  return fetch(targetUrl, { method: 'POST', headers, body: bodyStr });
 }
 
 module.exports = { proxyPost };

@@ -26,12 +26,27 @@ async function login(username, password) {
     throw new Error('Platform API unavailable - please try again later');
   }
 
-  if (!json.data || !json.data.newToken) {
+  const memberData = json.data?.memberData;
+  const accessToken = memberData?.accessToken?.[0];
+  const newToken = json.data?.newToken;
+
+  if (!accessToken && !newToken) {
     throw new Error(json.message || json.error || 'Login failed - no token returned');
   }
 
-  const token = json.data.newToken;
-  const { userId, exp } = decodeJWT(token);
+  // Use JWT accessToken for API calls; extract userId and expiry from it
+  const token = accessToken || newToken;
+  const userId = memberData?._id;
+  let exp;
+
+  // If token is a JWT, decode expiry from it
+  if (token.includes('.')) {
+    const decoded = decodeJWT(token);
+    exp = decoded.exp;
+  } else {
+    // Non-JWT token (hex), set expiry to 24h from now
+    exp = Math.floor(Date.now() / 1000) + 86400;
+  }
 
   return { token, userId, exp };
 }
