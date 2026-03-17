@@ -81,8 +81,8 @@ async function handleUpdate(update) {
   if (text.startsWith('/threshold')) {
     const parts = text.split(/\s+/);
     const amount = parseInt(parts[1], 10);
-    if (isNaN(amount) || amount < 1000) {
-      await sendMessage(chatId, 'Usage: /threshold <amount>\nMinimum: 1000');
+    if (isNaN(amount) || amount < 0) {
+      await sendMessage(chatId, 'Usage: /threshold <amount>\nMinimum: 0');
       return;
     }
     await updateClientConfig(chatId, 'threshold', amount);
