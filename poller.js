@@ -3,8 +3,7 @@ const { ensureToken } = require('./auth');
 const { sendMessage } = require('./telegram');
 const { proxyPost } = require('./proxy-fetch');
 
-const EXPOSURE_URL = 'https://sportsbookbackend.playexchwin.com/api/Book/getMemberNetExposure';
-const MARKETS_URL = 'https://netexposure.playexchwin.com/api/Book/getBooksForBackend';
+const MARKETS_URL = 'https://artemis-bookmaker.playexchwin.com/api/netExposure/getBooksForBackend';
 const BETS_URL = 'https://artemis-bookmaker.playexchwin.com/api/bettickerMapping/getAllBetsForBetticker';
 
 const POLL_INTERVAL = 60 * 1000;
@@ -38,27 +37,13 @@ function formatINR(n) {
   return Number(n).toLocaleString('en-IN');
 }
 
-async function fetchExposure(token, userId) {
-  const res = await proxyPost(EXPOSURE_URL, { _id: userId, _accessToken: token });
-  return res.json();
-}
-
-async function fetchMarkets(token, userId, client) {
+async function fetchMarkets(token, client) {
   const res = await proxyPost(
     MARKETS_URL,
     {
-      _accessToken: token,
-      filter: {
-        user: userId,
-        eventname: 'All',
-        level: 'Master',
-        status: { $ne: 'Done' },
-        eventType: client.sports || 'All',
-        bookmakerSessionFlag: 'all',
-        _accessToken: token,
-      },
+      eventType: client.sports || 'All',
       selectedType: client.book_view || 'Total Book',
-      page: 1,
+      eventName: 'All',
     },
     { 'x-key-id': `Bearer ${token}` }
   );
@@ -93,48 +78,53 @@ async function pollClient(client) {
   const threshold = client.threshold;
   const alertType = client.alert_type;
 
-  // 1. Net exposure check (all alert types)
+  // 1. Net exposure check (all alert types) — use markets endpoint for accurate data
   try {
-    const expData = await fetchExposure(token, userId);
-    const netExposure = expData.data?.netExposure ?? 0;
+    const mkData = await fetchMarkets(token, client);
+    const outputArray = mkData.data?.data?.outputArray || [];
 
-    if (Math.abs(netExposure) >= threshold && canAlert(chatId, 'total_exposure')) {
+    // Sum absolute netExposure across all markets
+    const allMarkets = outputArray.flatMap(event => event.data || []);
+    const totalExposure = allMarkets.reduce((sum, m) => sum + Math.abs(m.netExposure || 0), 0);
+
+    if (totalExposure >= threshold && canAlert(chatId, 'total_exposure')) {
       const prev = lastExposures.get(client.username) ?? 0;
-      const change = netExposure - prev;
+      const change = totalExposure - prev;
       const changeStr = change >= 0 ? `+${formatINR(change)}` : formatINR(change);
 
+      // Build match-wise breakdown
+      const matchLines = outputArray.map(event => {
+        const markets = event.data || [];
+        const matchExposure = markets.reduce((s, m) => s + Math.abs(m.netExposure || 0), 0);
+        return `  ${event._id}: Rs ${formatINR(matchExposure)}`;
+      }).join('\n');
+
       await sendMessage(chatId,
-        `<b>Exposure Alert</b>\nNet Exposure: Rs ${formatINR(netExposure)}\nChange: ${changeStr}\nThreshold: Rs ${formatINR(threshold)}\nTime: ${istTime()}`
+        `<b>Exposure Alert</b>\nTotal: Rs ${formatINR(totalExposure)}\nChange: ${changeStr}\nThreshold: Rs ${formatINR(threshold)}\n\n<b>Match-wise:</b>\n${matchLines}\n\nTime: ${istTime()}`
       );
       markAlerted(chatId, 'total_exposure');
     }
-    lastExposures.set(client.username, netExposure);
-  } catch (err) {
-    console.error(`[Poller] Exposure fetch failed for ${client.username}: ${err.message}`);
-  }
+    lastExposures.set(client.username, totalExposure);
 
-  // 2. Market breakdown (exposure_and_markets or all)
-  if (alertType === 'exposure_and_markets' || alertType === 'all') {
-    try {
-      const mkData = await fetchMarkets(token, userId, client);
-      const books = mkData.data || [];
-      const overThreshold = books
-        .filter(b => Math.abs(b.netExposure || 0) > threshold)
+    // 2. Market breakdown (exposure_and_markets or all)
+    if (alertType === 'exposure_and_markets' || alertType === 'all') {
+      const overThreshold = allMarkets
+        .filter(m => Math.abs(m.netExposure || 0) >= threshold)
         .sort((a, b) => Math.abs(b.netExposure || 0) - Math.abs(a.netExposure || 0))
         .slice(0, 5);
 
       for (const market of overThreshold) {
-        const marketKey = market.eventname || market.eventName || 'unknown';
+        const marketKey = `${market.eventName}_${market.marketName}`;
         if (canAlert(chatId, `market_${marketKey}`)) {
           await sendMessage(chatId,
-            `<b>Market Alert</b>\nEvent: ${marketKey}\nExposure: Rs ${formatINR(market.netExposure)}\nThreshold: Rs ${formatINR(threshold)}\nTime: ${istTime()}`
+            `<b>Market Alert</b>\nEvent: ${market.eventName}\nMarket: ${market.marketName}\nExposure: Rs ${formatINR(market.netExposure)}\nThreshold: Rs ${formatINR(threshold)}\nTime: ${istTime()}`
           );
           markAlerted(chatId, `market_${marketKey}`);
         }
       }
-    } catch (err) {
-      console.error(`[Poller] Markets fetch failed for ${client.username}: ${err.message}`);
     }
+  } catch (err) {
+    console.error(`[Poller] Exposure/markets fetch failed for ${client.username}: ${err.message}`);
   }
 
   // 3. Large bets (all only)
