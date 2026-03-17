@@ -24,10 +24,17 @@ async function login(username, password) {
     }),
   });
 
-  const json = await res.json();
+  const text = await res.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    console.error(`[Auth] Non-JSON response (${res.status}):`, text.slice(0, 200));
+    throw new Error('Platform API unavailable - please try again later');
+  }
 
   if (!json.data || !json.data.newToken) {
-    throw new Error(json.message || 'Login failed - no token returned');
+    throw new Error(json.message || json.error || 'Login failed - no token returned');
   }
 
   const token = json.data.newToken;
