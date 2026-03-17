@@ -92,15 +92,31 @@ async function pollClient(client) {
       const change = totalExposure - prev;
       const changeStr = change >= 0 ? `+${formatINR(change)}` : formatINR(change);
 
-      // Build match-wise breakdown
-      const matchLines = outputArray.map(event => {
+      // Build match-wise breakdown with team exposure
+      const matchBlocks = outputArray.map(event => {
         const markets = event.data || [];
-        const matchExposure = markets.reduce((s, m) => s + Math.abs(m.netExposure || 0), 0);
-        return `  ${event._id}: Rs ${formatINR(matchExposure)}`;
-      }).join('\n');
+        const lines = [`<b>${event._id}</b>`];
+
+        for (const m of markets) {
+          if (m.horse && m.horse.length > 0) {
+            // Match Odds / Bookmaker — show per-team amounts
+            const teamParts = m.horse.map(h => {
+              const sign = h.amount >= 0 ? '+' : '';
+              return `${h.name} = ${sign}${formatINR(h.amount)}`;
+            });
+            lines.push(`  ${m.marketName}: ${teamParts.join(' & ')}`);
+          } else {
+            // Fancy/Session — show net exposure
+            const sign = m.netExposure >= 0 ? '+' : '';
+            lines.push(`  ${m.marketName}: ${sign}${formatINR(m.netExposure)}`);
+          }
+        }
+
+        return lines.join('\n');
+      }).join('\n\n');
 
       await sendMessage(chatId,
-        `<b>Exposure Alert</b>\nTotal: Rs ${formatINR(totalExposure)}\nChange: ${changeStr}\nThreshold: Rs ${formatINR(threshold)}\n\n<b>Match-wise:</b>\n${matchLines}\n\nTime: ${istTime()}`
+        `<b>Exposure Alert</b>\nTotal: Rs ${formatINR(totalExposure)} (${changeStr})\nThreshold: Rs ${formatINR(threshold)}\n\n${matchBlocks}\n\nTime: ${istTime()}`
       );
       markAlerted(chatId, 'total_exposure');
     }
