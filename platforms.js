@@ -83,31 +83,38 @@ const PLATFORMS = {
     },
 
     marketsBody(client) {
+      // LeoExch expects TotalBook/MyPT (no space)
+      const bookView = client.book_view || 'Total Book';
+      const bookType = bookView === 'Total Book' ? 'TotalBook' : bookView === 'My PT' ? 'MyPT' : bookView.replace(/\s/g, '');
       return {
         gameName: client.sports || 'All',
-        bookType: client.book_view || 'Total Book',
+        bookType,
       };
     },
 
     parseMarkets(json) {
-      const data = json.data || [];
-      return data.map(item => {
-        const runners = item.runners || [];
-        const bookExecuted = item.bookExecuted || {};
-        return {
-          id: item._id || item.marketId || `${item.eventName}-${item.marketName}`,
-          eventName: item.eventName || item.gameName || 'Unknown',
-          marketName: item.marketName || 'Unknown',
-          netExposure: Math.abs(item.netExposure ?? item.maxLoss ?? item.exposure ?? 0),
-          runners: runners.map(r => {
-            const executed = bookExecuted[r.selectionId] || bookExecuted[r._id] || {};
+      const events = json.data || [];
+      // Each event has markets[] with bookExecuted keyed by selectionId
+      return events.flatMap(event =>
+        (event.markets || []).map(market => {
+          const bookExecuted = market.bookExecuted || {};
+          const runners = (market.runners || []).map(r => {
+            const exposure = bookExecuted[r.selectionId] ?? bookExecuted[r._id] ?? 0;
             return {
               name: r.runnerName || r.name || r.selectionName || 'Unknown',
-              exposure: executed.amount ?? executed.exposure ?? r.amount ?? r.exposure ?? r.winLoss ?? r.pl ?? 0,
+              exposure: typeof exposure === 'number' ? exposure : exposure.amount ?? exposure.exposure ?? 0,
             };
-          }),
-        };
-      });
+          });
+          const netExposure = runners.reduce((max, r) => Math.max(max, Math.abs(r.exposure)), 0);
+          return {
+            id: market.marketId || `${event.eventName}-${market.marketName}`,
+            eventName: event.eventName || event.gameName || 'Unknown',
+            marketName: market.marketName || 'Unknown',
+            netExposure,
+            runners,
+          };
+        })
+      );
     },
   },
 };

@@ -1,4 +1,4 @@
-const { getAllActiveClients } = require('./db');
+const { getAllActiveClients, updateClientToken } = require('./db');
 const { ensureToken } = require('./auth');
 const { sendMessage, exposureAlert } = require('./telegram');
 const { proxyPost } = require('./proxy-fetch');
@@ -39,8 +39,17 @@ async function pollClient(client) {
   const platform = getPlatform(platformName);
 
   try {
-    const mkData = await fetchMarkets(token, client);
+    let mkData = await fetchMarkets(token, client);
     console.log(`[Poller] ${client.username} (${platformName}) raw response:`, JSON.stringify(mkData).slice(0, 500));
+
+    // Handle session expired — clear token and retry with fresh login
+    if (mkData.isLoggedOut || mkData.customStatus === 4000 || mkData.message?.includes('Session Has Expired')) {
+      console.log(`[Poller] Session expired for ${client.username} (${platformName}), re-logging in`);
+      await updateClientToken(client.username, platformName, null, null, null);
+      const fresh = await ensureToken({ ...client, token: null, token_expiry: null });
+      mkData = await fetchMarkets(fresh.token, client);
+      console.log(`[Poller] ${client.username} (${platformName}) retry response:`, JSON.stringify(mkData).slice(0, 500));
+    }
 
     const allMarkets = platform.parseMarkets(mkData);
     const totalExposure = allMarkets.reduce((sum, m) => sum + m.netExposure, 0);
