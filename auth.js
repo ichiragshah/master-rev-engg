@@ -3,8 +3,12 @@ const { updateClientToken } = require('./db');
 const { getPlatform } = require('./platforms');
 const { proxyPost } = require('./proxy-fetch');
 
+const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'AUTH', msg, ...data }));
+
 async function login(username, password, platformName) {
   const platform = getPlatform(platformName);
+
+  log('INFO', 'Login attempt', { username, platform: platformName });
 
   const res = await proxyPost(
     platform.loginUrl,
@@ -18,11 +22,13 @@ async function login(username, password, platformName) {
   try {
     json = JSON.parse(text);
   } catch {
-    console.error(`[Auth] Non-JSON response (${res.status}):`, text.slice(0, 200));
+    log('ERROR', 'Non-JSON login response', { username, platform: platformName, status: res.status, responseBody: text.slice(0, 200) });
     throw new Error('Platform API unavailable - please try again later');
   }
 
-  return platform.extractToken(json);
+  const result = platform.extractToken(json);
+  log('INFO', 'Login success', { username, platform: platformName, userId: result.userId });
+  return result;
 }
 
 async function ensureToken(client) {
@@ -30,12 +36,13 @@ async function ensureToken(client) {
   const tenMinutes = 10 * 60;
 
   if (client.token && client.token_expiry && (client.token_expiry - now) > tenMinutes) {
+    log('INFO', 'Token reused', { username: client.username, platform: client.platform || 'winner7' });
     return { token: client.token, userId: client.user_id };
   }
 
   const platformName = client.platform || 'winner7';
   const platform = getPlatform(platformName);
-  console.log(`[Auth] Re-logging in ${client.username} (${platformName})`);
+  log('INFO', 'Token refresh', { username: client.username, platform: platformName });
   const password = decrypt(client.password_enc);
   const { token, userId: loginUserId, exp } = await login(client.username, password, platformName);
 
@@ -50,9 +57,9 @@ async function ensureToken(client) {
       );
       const udJson = await udRes.json();
       userId = platform.extractUserId(udJson);
-      console.log(`[Auth] Fetched userId for ${client.username} (${platformName}): ${userId}`);
+      log('INFO', 'Fetched userId', { username: client.username, platform: platformName, userId });
     } catch (err) {
-      console.error(`[Auth] getOneUser failed for ${client.username}: ${err.message}`);
+      log('ERROR', 'getOneUser failed', { username: client.username, platform: platformName, error: err.message });
     }
   }
 

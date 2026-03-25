@@ -1,16 +1,60 @@
 const { getActiveClientsForChatIds, updateClientToken, getRecipientChatIds } = require('./db');
 const { ensureToken } = require('./auth');
-const { sendMessage, exposureAlert } = require('./telegram');
+const { sendMessage, exposureAlert, notifyAdmin } = require('./telegram');
 const { proxyPost } = require('./proxy-fetch');
 const { getPlatform } = require('./platforms');
+
+const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'POLL', msg, ...data }));
+const timeIST = () => new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true, weekday: 'short', day: '2-digit', month: 'short' });
 
 const POLL_INTERVAL = 30 * 1000;
 
 const lastExposures = new Map();
 const activePollers = new Set();
 
+// Session tracking per chatId
+const sessionState = new Map();
+// Failure tracking per clientKey
+const clientFailures = new Map();
+// Last successful poll time per clientKey
+const lastPollTimes = new Map();
+// System health flag (set by server.js health check)
+let systemHealthy = true;
+
 function clientKey(client) {
   return `${client.platform || 'winner7'}:${client.username}`;
+}
+
+function initSessionState(chatId) {
+  sessionState.set(chatId, { startTime: Date.now(), alertsSent: 0, peakExposure: 0 });
+}
+
+function getSessionState(chatId) {
+  return sessionState.get(chatId) || null;
+}
+
+function resetSessionState(chatId) {
+  sessionState.delete(chatId);
+}
+
+function isPollingActive(chatId) {
+  return activePollers.has(chatId);
+}
+
+function getLastPollTime(key) {
+  return lastPollTimes.get(key) || null;
+}
+
+function isSystemHealthy() {
+  return systemHealthy;
+}
+
+function setSystemHealthy(healthy) {
+  systemHealthy = healthy;
+}
+
+function getActivePollerCount() {
+  return activePollers.size;
 }
 
 async function fetchMarkets(token, client) {
@@ -39,13 +83,13 @@ async function fetchFancyMarkets(token, client) {
   return res.json();
 }
 
-async function pollClient(client) {
+// Core fetch logic — returns { totalExposure, markets, success, error }
+async function fetchClientExposure(client) {
   let token, userId;
   try {
     ({ token, userId } = await ensureToken(client));
   } catch (err) {
-    console.error(`[Poller] Login failed for ${client.username} (${client.platform}): ${err.message}`);
-    return;
+    return { totalExposure: 0, markets: [], success: false, error: `Login failed: ${err.message}` };
   }
 
   const platformName = client.platform || 'winner7';
@@ -53,15 +97,17 @@ async function pollClient(client) {
 
   try {
     let mkData = await fetchMarkets(token, client);
-    console.log(`[Poller] ${client.username} (${platformName}) raw response:`, JSON.stringify(mkData).slice(0, 500));
+    log('INFO', 'Raw response', { username: client.username, platform: platformName, responseBody: JSON.stringify(mkData).slice(0, 2000) });
 
-    // Handle session expired — clear token and retry with fresh login
+    // Handle session expired
     if (mkData.isLoggedOut || mkData.customStatus === 4000 || mkData.message?.includes('Session Has Expired')) {
-      console.log(`[Poller] Session expired for ${client.username} (${platformName}), re-logging in`);
+      log('INFO', 'Session expired, re-login', { username: client.username, platform: platformName });
       await updateClientToken(client.username, platformName, null, null, null);
       const fresh = await ensureToken({ ...client, token: null, token_expiry: null });
+      token = fresh.token;
+      userId = fresh.userId;
       mkData = await fetchMarkets(fresh.token, client);
-      console.log(`[Poller] ${client.username} (${platformName}) retry response:`, JSON.stringify(mkData).slice(0, 500));
+      log('INFO', 'Retry response', { username: client.username, platform: platformName, responseBody: JSON.stringify(mkData).slice(0, 2000) });
     }
 
     const regularMarkets = platform.parseMarkets(mkData);
@@ -72,30 +118,99 @@ async function pollClient(client) {
       try {
         const fancyClient = { ...client, user_id: effectiveUserId };
         const fancyData = await fetchFancyMarkets(token, fancyClient);
-        console.log(`[Poller] ${client.username} (${platformName}) fancy response:`, JSON.stringify(fancyData).slice(0, 500));
+        log('INFO', 'Fancy response', { username: client.username, platform: platformName, responseBody: JSON.stringify(fancyData).slice(0, 2000) });
         fancyMarkets = platform.parseFancyMarkets(fancyData);
       } catch (err) {
-        console.error(`[Poller] Fancy fetch failed for ${client.username}: ${err.message}`);
+        log('ERROR', 'Fancy fetch failed', { username: client.username, platform: platformName, error: err.message });
       }
     }
 
     const allMarkets = [...regularMarkets, ...fancyMarkets];
     const totalExposure = allMarkets.reduce((sum, m) => sum + m.netExposure, 0);
 
-    const key = clientKey(client);
-    const prev = lastExposures.get(key);
-    const isNew = prev == null && totalExposure > 0;
-    const changed = prev != null && totalExposure !== prev && totalExposure > 0;
+    log('INFO', 'Exposure parsed', { username: client.username, platform: platformName, exposure: totalExposure, marketCount: allMarkets.length });
 
-    if (isNew || changed) {
-      const alertText = exposureAlert(client, totalExposure, prev, allMarkets);
-      const chatIds = await getRecipientChatIds(client.id);
-      await Promise.allSettled(chatIds.map(cid => sendMessage(cid, alertText)));
-    }
-    lastExposures.set(key, totalExposure);
+    return { totalExposure, markets: allMarkets, success: true, error: null };
   } catch (err) {
-    console.error(`[Poller] Fetch failed for ${client.username} (${platformName}): ${err.message}`);
+    return { totalExposure: 0, markets: [], success: false, error: err.message };
   }
+}
+
+async function pollClient(client) {
+  const key = clientKey(client);
+  const platformName = client.platform || 'winner7';
+  const start = Date.now();
+
+  const result = await fetchClientExposure(client);
+
+  if (!result.success) {
+    // Track failures
+    const failures = clientFailures.get(key) || { consecutiveFailures: 0, failureAlertSent: false };
+    failures.consecutiveFailures++;
+    clientFailures.set(key, failures);
+
+    log('ERROR', 'Poll failed', { username: client.username, platform: platformName, error: result.error, attempt: failures.consecutiveFailures });
+
+    if (failures.consecutiveFailures >= 3 && !failures.failureAlertSent) {
+      const chatIds = await getRecipientChatIds(client.id);
+      const failMsg = `⚠️ <b>POLLING ISSUE</b>\n\n${client.username} (${platformName}) — failed ${failures.consecutiveFailures} times in a row.\nError: ${result.error}\n\nWill keep retrying. If this persists, check credentials.\n🕐 ${timeIST()}`;
+      await Promise.allSettled(chatIds.map(cid => sendMessage(cid, failMsg)));
+      failures.failureAlertSent = true;
+
+      await notifyAdmin(`⚠️ Poll failures: ${client.username} (${platformName}) — ${failures.consecutiveFailures} consecutive failures: ${result.error}`);
+    }
+    return;
+  }
+
+  // Success path
+  const prevFailures = clientFailures.get(key);
+  if (prevFailures && prevFailures.consecutiveFailures > 0) {
+    // Recovery — first success after failures
+    log('INFO', 'Recovery', { username: client.username, platform: platformName, resumedAfter: prevFailures.consecutiveFailures });
+    const chatIds = await getRecipientChatIds(client.id);
+    const recoveryMsg = `✅ <b>RECOVERED</b>\n\n${client.username} (${platformName}) is back online after ${prevFailures.consecutiveFailures} failed attempts.\n🕐 ${timeIST()}`;
+    await Promise.allSettled(chatIds.map(cid => sendMessage(cid, recoveryMsg)));
+
+    await notifyAdmin(`✅ Recovered: ${client.username} (${platformName}) after ${prevFailures.consecutiveFailures} failures`);
+  }
+  clientFailures.set(key, { consecutiveFailures: 0, failureAlertSent: false });
+
+  lastPollTimes.set(key, Date.now());
+
+  // Update peak exposure for all active chatIds linked to this client
+  const chatIds = await getRecipientChatIds(client.id);
+  for (const cid of chatIds) {
+    const session = sessionState.get(cid);
+    if (session && Math.abs(result.totalExposure) > Math.abs(session.peakExposure)) {
+      session.peakExposure = result.totalExposure;
+    }
+  }
+
+  // Check if alert needed
+  const prev = lastExposures.get(key);
+  const isNew = prev == null && result.totalExposure > 0;
+  const changed = prev != null && result.totalExposure !== prev && result.totalExposure > 0;
+
+  if (isNew || changed) {
+    const alertText = exposureAlert(client, result.totalExposure, prev, result.markets);
+    log('INFO', 'Alert fired', { username: client.username, platform: platformName, exposure: result.totalExposure, prev, delta: prev != null ? result.totalExposure - prev : null });
+
+    await Promise.allSettled(chatIds.map(cid => sendMessage(cid, alertText)));
+
+    // Increment alertsSent for active sessions
+    for (const cid of chatIds) {
+      const session = sessionState.get(cid);
+      if (session) session.alertsSent++;
+    }
+
+    const fmtExp = n => '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
+    await notifyAdmin(`📊 Alert: ${client.username} (${platformName}) — exposure ${fmtExp(result.totalExposure)}`);
+  } else {
+    log('INFO', 'Alert skipped', { username: client.username, platform: platformName, exposure: result.totalExposure, prev });
+  }
+
+  lastExposures.set(key, result.totalExposure);
+  log('INFO', 'Cycle complete', { username: client.username, platform: platformName, durationMs: Date.now() - start });
 }
 
 async function pollAll() {
@@ -105,23 +220,37 @@ async function pollAll() {
   const clients = await getActiveClientsForChatIds(chatIds);
   if (clients.length === 0) return;
 
-  console.log(`[Poller] Polling ${clients.length} client(s) for ${chatIds.length} active user(s)`);
+  log('INFO', 'Cycle start', { activePollers: chatIds.length, clientCount: clients.length });
   await Promise.allSettled(clients.map(c => pollClient(c)));
 }
 
 function startPolling(chatId) {
   activePollers.add(chatId);
-  console.log(`[Poller] Started polling for chat ${chatId} (${activePollers.size} active)`);
+  log('INFO', 'Started polling', { chatId, activeCount: activePollers.size });
 }
 
 function stopPolling(chatId) {
   activePollers.delete(chatId);
-  console.log(`[Poller] Stopped polling for chat ${chatId} (${activePollers.size} active)`);
+  log('INFO', 'Stopped polling', { chatId, activeCount: activePollers.size });
 }
 
 function startPoller() {
-  console.log(`[Poller] Starting, interval: ${POLL_INTERVAL / 1000}s`);
+  log('INFO', 'Poller starting', { intervalSec: POLL_INTERVAL / 1000 });
   setInterval(pollAll, POLL_INTERVAL);
 }
 
-module.exports = { startPoller, startPolling, stopPolling };
+module.exports = {
+  startPoller,
+  startPolling,
+  stopPolling,
+  clientKey,
+  initSessionState,
+  getSessionState,
+  resetSessionState,
+  isPollingActive,
+  getLastPollTime,
+  isSystemHealthy,
+  setSystemHealthy,
+  getActivePollerCount,
+  fetchClientExposure,
+};

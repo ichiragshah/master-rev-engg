@@ -1,9 +1,12 @@
 const express = require('express');
 const path = require('path');
-const { initDB, registerClient, addRecipients, getAllClients } = require('./db');
+const { pool, initDB, registerClient, addRecipients, getAllClients } = require('./db');
 const { encrypt } = require('./crypto');
-const { setWebhook, handleUpdate } = require('./telegram');
-const { startPoller } = require('./poller');
+const { setWebhook, handleUpdate, notifyAdmin } = require('./telegram');
+const { startPoller, setSystemHealthy, getActivePollerCount } = require('./poller');
+const { proxyGet } = require('./proxy-fetch');
+
+const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'SERVER', msg, ...data }));
 
 const app = express();
 app.use(express.json());
@@ -11,7 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
+  res.json({ status: 'ok', uptime: process.uptime(), activePollers: getActivePollerCount() });
 });
 
 // Registration
@@ -33,6 +36,8 @@ app.post('/register', async (req, res) => {
     const validPlatforms = ['winner7', 'leoexch'];
     const selectedPlatform = validPlatforms.includes(platform) ? platform : 'winner7';
 
+    log('INFO', 'Registration attempt', { username, platform: selectedPlatform });
+
     const password_enc = encrypt(password);
 
     const client = await registerClient({
@@ -52,12 +57,16 @@ app.post('/register', async (req, res) => {
 
     const botUsername = process.env.BOT_USERNAME || 'your_bot';
     const plural = rawUsernames.length > 1 ? `All ${rawUsernames.length} users need to` : 'Now';
+
+    log('INFO', 'Registration success', { username, platform: selectedPlatform, clientId: client.id });
+    await notifyAdmin(`🆕 New registration: ${username} (${selectedPlatform}) — TG: @${rawUsernames[0]}`);
+
     res.json({
       success: true,
       message: `Registered! ${plural} message @${botUsername} on Telegram and send /start to link.`,
     });
   } catch (err) {
-    console.error('[Register] Error:', err.message);
+    log('ERROR', 'Registration failed', { error: err.message });
     res.status(500).json({ success: false, message: 'Registration failed. Please try again.' });
   }
 });
@@ -66,7 +75,7 @@ app.post('/register', async (req, res) => {
 app.post('/telegram-webhook', (req, res) => {
   res.sendStatus(200);
   handleUpdate(req.body).catch(err => {
-    console.error('[Webhook] Error:', err.message);
+    log('ERROR', 'Webhook handler error', { error: err.message });
   });
 });
 
@@ -86,6 +95,51 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// System health check
+let lastHealthState = true;
+
+async function systemHealthCheck() {
+  let dbOk = false;
+  let proxyOk = false;
+
+  try {
+    await pool.query('SELECT 1');
+    dbOk = true;
+  } catch (err) {
+    log('ERROR', 'Health: DB check failed', { error: err.message });
+  }
+
+  try {
+    const res = await proxyGet('https://ipv4.icanhazip.com');
+    proxyOk = res.ok;
+  } catch (err) {
+    log('ERROR', 'Health: Proxy check failed', { error: err.message });
+  }
+
+  const activePollers = getActivePollerCount();
+  const healthy = dbOk && proxyOk;
+
+  setSystemHealthy(healthy);
+  log('INFO', 'Health check', { db: dbOk, proxy: proxyOk, activePollers, healthy });
+
+  // Alert on state transitions only
+  if (lastHealthState && !healthy) {
+    await notifyAdmin(`🔴 <b>System Degraded</b>\nDB: ${dbOk ? 'OK' : 'DOWN'} | Proxy: ${proxyOk ? 'OK' : 'DOWN'} | Pollers: ${activePollers}`);
+  } else if (!lastHealthState && healthy) {
+    await notifyAdmin(`🟢 <b>System Recovered</b>\nDB: OK | Proxy: OK | Pollers: ${activePollers}`);
+  }
+  lastHealthState = healthy;
+}
+
+// Global error handlers
+process.on('uncaughtException', (err) => {
+  log('ERROR', 'Uncaught exception', { error: err.message, stack: err.stack });
+});
+
+process.on('unhandledRejection', (reason) => {
+  log('ERROR', 'Unhandled rejection', { reason: String(reason) });
+});
+
 // Startup
 const PORT = process.env.PORT || 3000;
 
@@ -98,16 +152,20 @@ async function start() {
       const webhookUrl = appUrl.startsWith('http') ? appUrl : `https://${appUrl}`;
       await setWebhook(webhookUrl);
     } else {
-      console.warn('[Startup] No APP_URL set, skipping webhook setup');
+      log('WARN', 'No APP_URL set, skipping webhook setup');
     }
 
     startPoller();
 
     app.listen(PORT, () => {
-      console.log(`[Server] Running on port ${PORT}`);
+      log('INFO', 'Server started', { port: PORT, appUrl, botUsername: process.env.BOT_USERNAME });
     });
+
+    // Health check: first at 30s, then every 5 min
+    setTimeout(systemHealthCheck, 30_000);
+    setInterval(systemHealthCheck, 5 * 60 * 1000);
   } catch (err) {
-    console.error('[Startup] Fatal error:', err);
+    log('ERROR', 'Fatal startup error', { error: err.message, stack: err.stack });
     process.exit(1);
   }
 }
