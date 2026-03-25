@@ -3,7 +3,7 @@ const {
   linkRecipientChatId,
   getClientByChatId,
   getRecipientsByClientId,
-  setClientActive,
+  getLinkedClientCount,
 } = require('./db');
 const { PLATFORMS } = require('./platforms');
 
@@ -50,7 +50,7 @@ async function handleUpdate(update) {
     const linked = await linkRecipientChatId(tgUsername, chatId);
     if (linked) {
       await sendMessage(chatId,
-        `Linked! Your Telegram is now connected.\n\nCommands:\n/status - View your config\n/pause - Pause alerts\n/resume - Resume alerts`
+        `Linked! Your Telegram is now connected.\n\nCommands:\n/chalu - Start monitoring\n/khatam - Stop monitoring\n/status - View your config`
       );
     } else {
       await sendMessage(chatId,
@@ -80,19 +80,22 @@ async function handleUpdate(update) {
     return;
   }
 
-  if (text === '/pause') {
-    await setClientActive(chatId, false);
-    await sendMessage(chatId, 'Alerts paused. Send /resume to restart.');
+  if (text === '/chalu') {
+    const { startPolling } = require('./poller');
+    startPolling(chatId);
+    const count = await getLinkedClientCount(chatId);
+    await sendMessage(chatId, `Monitoring started! Tracking ${count} client(s). Polling every 30s.\nSend /khatam to stop.`);
     return;
   }
 
-  if (text === '/resume') {
-    await setClientActive(chatId, true);
-    await sendMessage(chatId, 'Alerts resumed!');
+  if (text === '/khatam') {
+    const { stopPolling } = require('./poller');
+    stopPolling(chatId);
+    await sendMessage(chatId, 'Monitoring stopped. No more API calls for your accounts.\nSend /chalu to restart.');
     return;
   }
 
-  await sendMessage(chatId, 'Unknown command. Send /status for help.');
+  await sendMessage(chatId, 'Unknown command.\n\n/chalu - Start monitoring\n/khatam - Stop monitoring\n/status - View config');
 }
 
 function fmt(n) {

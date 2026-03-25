@@ -194,10 +194,32 @@ async function getAllClients() {
   return rows;
 }
 
+async function getActiveClientsForChatIds(chatIds) {
+  if (!chatIds || chatIds.length === 0) return [];
+  const { rows } = await pool.query(`
+    SELECT DISTINCT c.* FROM clients c
+    JOIN alert_recipients ar ON ar.client_id = c.id
+    WHERE c.active = true
+      AND ar.telegram_chat_id = ANY($1::bigint[])
+  `, [chatIds]);
+  return rows;
+}
+
+async function getLinkedClientCount(chatId) {
+  const { rows } = await pool.query(`
+    SELECT COUNT(DISTINCT c.id) AS cnt FROM clients c
+    JOIN alert_recipients ar ON ar.client_id = c.id
+    WHERE c.active = true AND ar.telegram_chat_id = $1
+  `, [chatId]);
+  return parseInt(rows[0].cnt, 10);
+}
+
 module.exports = {
   pool,
   initDB,
   getAllActiveClients,
+  getActiveClientsForChatIds,
+  getLinkedClientCount,
   registerClient,
   addRecipients,
   getRecipientChatIds,

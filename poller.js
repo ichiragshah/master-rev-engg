@@ -1,12 +1,13 @@
-const { getAllActiveClients, updateClientToken, getRecipientChatIds } = require('./db');
+const { getActiveClientsForChatIds, updateClientToken, getRecipientChatIds } = require('./db');
 const { ensureToken } = require('./auth');
 const { sendMessage, exposureAlert } = require('./telegram');
 const { proxyPost } = require('./proxy-fetch');
 const { getPlatform } = require('./platforms');
 
-const POLL_INTERVAL = 60 * 1000;
+const POLL_INTERVAL = 30 * 1000;
 
 const lastExposures = new Map();
+const activePollers = new Set();
 
 function clientKey(client) {
   return `${client.platform || 'winner7'}:${client.username}`;
@@ -98,17 +99,29 @@ async function pollClient(client) {
 }
 
 async function pollAll() {
-  const clients = await getAllActiveClients();
+  if (activePollers.size === 0) return;
+
+  const chatIds = [...activePollers];
+  const clients = await getActiveClientsForChatIds(chatIds);
   if (clients.length === 0) return;
 
-  console.log(`[Poller] Polling ${clients.length} active client(s)`);
+  console.log(`[Poller] Polling ${clients.length} client(s) for ${chatIds.length} active user(s)`);
   await Promise.allSettled(clients.map(c => pollClient(c)));
+}
+
+function startPolling(chatId) {
+  activePollers.add(chatId);
+  console.log(`[Poller] Started polling for chat ${chatId} (${activePollers.size} active)`);
+}
+
+function stopPolling(chatId) {
+  activePollers.delete(chatId);
+  console.log(`[Poller] Stopped polling for chat ${chatId} (${activePollers.size} active)`);
 }
 
 function startPoller() {
   console.log(`[Poller] Starting, interval: ${POLL_INTERVAL / 1000}s`);
-  pollAll();
   setInterval(pollAll, POLL_INTERVAL);
 }
 
-module.exports = { startPoller };
+module.exports = { startPoller, startPolling, stopPolling };
