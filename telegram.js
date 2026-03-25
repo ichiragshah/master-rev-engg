@@ -2,9 +2,9 @@ const fetch = require('node-fetch');
 const {
   updateClientChatId,
   getClientByChatId,
-  updateClientConfig,
   setClientActive,
 } = require('./db');
+const { PLATFORMS } = require('./platforms');
 
 const BOT_TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const API = () => `https://api.telegram.org/bot${BOT_TOKEN()}`;
@@ -49,7 +49,7 @@ async function handleUpdate(update) {
     const linked = await updateClientChatId(tgUsername, chatId);
     if (linked) {
       await sendMessage(chatId,
-        `Linked! Your Telegram is now connected.\n\nCommands:\n/status - View your config\n/threshold <amount> - Set alert threshold\n/alerts exposure|markets|all - Alert type\n/sports all|cricket|tennis|soccer - Sports filter\n/book total|mypt - Book view\n/pause - Pause alerts\n/resume - Resume alerts`
+        `Linked! Your Telegram is now connected.\n\nCommands:\n/status - View your config\n/pause - Pause alerts\n/resume - Resume alerts`
       );
     } else {
       await sendMessage(chatId,
@@ -67,77 +67,10 @@ async function handleUpdate(update) {
 
   if (text === '/status') {
     const status = client.active ? 'Active' : 'Paused';
-    const alertLabels = {
-      'exposure_only': 'Net Exposure Only',
-      'exposure_and_markets': 'Exposure + Markets',
-      'all': 'Everything',
-    };
+    const platformLabel = PLATFORMS[client.platform]?.name || client.platform || 'Winner7';
     await sendMessage(chatId,
-      `<b>Your Settings</b>\nUser: ${client.username}\nThreshold: Rs ${client.threshold.toLocaleString('en-IN')}\nAlerts: ${alertLabels[client.alert_type] || client.alert_type}\nSports: ${client.sports || 'All'}\nBook View: ${client.book_view || 'Total Book'}\nStatus: ${status}`
+      `<b>Your Settings</b>\nPlatform: ${platformLabel}\nUser: ${client.username}\nSports: ${client.sports || 'All'}\nBook View: ${client.book_view || 'Total Book'}\nStatus: ${status}`
     );
-    return;
-  }
-
-  if (text.startsWith('/threshold')) {
-    const parts = text.split(/\s+/);
-    const amount = parseInt(parts[1], 10);
-    if (isNaN(amount) || amount < 0) {
-      await sendMessage(chatId, 'Usage: /threshold <amount>\nMinimum: 0');
-      return;
-    }
-    await updateClientConfig(chatId, 'threshold', amount);
-    await sendMessage(chatId, `Threshold updated to Rs ${amount.toLocaleString('en-IN')}`);
-    return;
-  }
-
-  if (text.startsWith('/alerts')) {
-    const parts = text.split(/\s+/);
-    const type = parts[1];
-    const typeMap = {
-      'exposure': 'exposure_only',
-      'markets': 'exposure_and_markets',
-      'all': 'all',
-    };
-    if (!type || !typeMap[type]) {
-      await sendMessage(chatId, 'Usage:\n/alerts exposure\n/alerts markets\n/alerts all');
-      return;
-    }
-    await updateClientConfig(chatId, 'alert_type', typeMap[type]);
-    await sendMessage(chatId, `Alert type set to: <b>${typeMap[type]}</b>`);
-    return;
-  }
-
-  if (text.startsWith('/sports')) {
-    const parts = text.split(/\s+/);
-    const sport = (parts[1] || '').toLowerCase();
-    const sportsMap = {
-      'all': 'All',
-      'cricket': 'Cricket',
-      'tennis': 'Tennis',
-      'soccer': 'Soccer',
-    };
-    if (!sport || !sportsMap[sport]) {
-      await sendMessage(chatId, 'Usage:\n/sports all\n/sports cricket\n/sports tennis\n/sports soccer');
-      return;
-    }
-    await updateClientConfig(chatId, 'sports', sportsMap[sport]);
-    await sendMessage(chatId, `Sports filter set to: <b>${sportsMap[sport]}</b>`);
-    return;
-  }
-
-  if (text.startsWith('/book')) {
-    const parts = text.split(/\s+/);
-    const view = (parts[1] || '').toLowerCase();
-    const bookMap = {
-      'total': 'Total Book',
-      'mypt': 'My PT',
-    };
-    if (!view || !bookMap[view]) {
-      await sendMessage(chatId, 'Usage:\n/book total - Total Book\n/book mypt - My PT');
-      return;
-    }
-    await updateClientConfig(chatId, 'book_view', bookMap[view]);
-    await sendMessage(chatId, `Book view set to: <b>${bookMap[view]}</b>`);
     return;
   }
 
@@ -156,4 +89,45 @@ async function handleUpdate(update) {
   await sendMessage(chatId, 'Unknown command. Send /status for help.');
 }
 
-module.exports = { setWebhook, sendMessage, handleUpdate };
+function fmt(n) {
+  return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
+}
+
+function exposureAlert(client, totalExposure, prevExposure, markets) {
+  const diff = prevExposure != null ? totalExposure - prevExposure : null;
+  const changeStr = diff != null
+    ? `📈 Change          <b>${diff >= 0 ? '+' : ''}${fmt(diff)}</b>\n`
+    : '';
+
+  const timeStr = new Date().toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+    weekday: 'short', day: '2-digit', month: 'short',
+  });
+
+  let marketLines = '';
+  if (markets && markets.length > 0) {
+    markets.slice(0, 3).forEach(m => {
+      marketLines += `\n🏏 <b>${m.eventName}</b>  •  ${m.marketName}\n`;
+      m.runners.forEach(r => {
+        const icon = r.exposure >= 0 ? '✅' : '🔴';
+        const sign = r.exposure >= 0 ? '+' : '-';
+        marketLines += `   ${r.name.padEnd(20)} ${sign}${fmt(r.exposure)}  ${icon}\n`;
+      });
+    });
+    marketLines += '━━━━━━━━━━━━━━━━━━━━';
+  }
+
+  const platformLabel = PLATFORMS[client.platform]?.name || client.platform || 'Winner7';
+
+  return `🚨 <b>EXPOSURE ALERT</b>
+
+👤 ${client.username}  •  ${platformLabel}  •  ${client.book_view || 'Total Book'}
+━━━━━━━━━━━━━━━━━━━━
+💰 Net Exposure    <b>${fmt(totalExposure)}</b>
+${changeStr}━━━━━━━━━━━━━━━━━━━━
+${marketLines}
+🕐 ${timeStr}`;
+}
+
+module.exports = { setWebhook, sendMessage, handleUpdate, exposureAlert };

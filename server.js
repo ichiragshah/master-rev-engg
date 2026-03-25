@@ -17,11 +17,14 @@ app.get('/health', (req, res) => {
 // Registration
 app.post('/register', async (req, res) => {
   try {
-    const { name, username, password, telegram_username, threshold, alert_type, sports, book_view } = req.body;
+    const { name, username, password, telegram_username, threshold, alert_type, sports, book_view, platform } = req.body;
 
     if (!username || !password || !telegram_username) {
       return res.status(400).json({ success: false, message: 'Username, password, and Telegram username are required.' });
     }
+
+    const validPlatforms = ['winner7', 'leoexch'];
+    const selectedPlatform = validPlatforms.includes(platform) ? platform : 'winner7';
 
     const password_enc = encrypt(password);
 
@@ -34,6 +37,7 @@ app.post('/register', async (req, res) => {
       alert_type: alert_type || 'exposure_only',
       sports: sports || 'All',
       book_view: book_view || 'Total Book',
+      platform: selectedPlatform,
     });
 
     const botUsername = process.env.BOT_USERNAME || 'your_bot';
