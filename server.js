@@ -101,7 +101,11 @@ async function start() {
       console.warn('[Startup] No APP_URL set, skipping webhook setup');
     }
 
-    startPoller();
+    if (!process.env.RAILWAY_PUBLIC_DOMAIN) {
+      startPoller();
+    } else {
+      console.log('[Startup] Railway detected, skipping poller (runs locally)');
+    }
 
     app.listen(PORT, () => {
       console.log(`[Server] Running on port ${PORT}`);
