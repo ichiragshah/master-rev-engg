@@ -63,6 +63,7 @@ const PLATFORMS = {
     name: 'LeoExch',
     loginUrl: 'https://adminapi.winzone.uk/user/adminlogin',
     marketsUrl: 'https://adminapi.winzone.uk/sportsbook/getAllBooksForAdminFromSb',
+    fancyMarketsUrl: 'https://adminapi.winzone.uk/sportsbook/getMasterFancyLadder',
     origin: 'https://admin.leoexch.co',
 
     loginBody(username, password) {
@@ -92,6 +93,26 @@ const PLATFORMS = {
       };
     },
 
+    userDetailsUrl: 'https://adminapi.winzone.uk/user/getOneUser',
+
+    userDetailsBody() {
+      return { userDetails: true };
+    },
+
+    extractUserId(json) {
+      return json.data?.id || json.data?.accessId || null;
+    },
+
+    fancyMarketsBody(client) {
+      const bookView = client.book_view || 'Total Book';
+      const bookType = bookView === 'Total Book' ? 'TotalBook' : bookView === 'My PT' ? 'MyPT' : bookView.replace(/\s/g, '');
+      return {
+        userId: client.user_id,
+        bookType,
+        hierarchy: false,
+      };
+    },
+
     parseMarkets(json) {
       const events = json.data || [];
       // Each event has markets[] with bookExecuted keyed by selectionId
@@ -111,6 +132,30 @@ const PLATFORMS = {
             eventName: event.eventName || event.gameName || 'Unknown',
             marketName: market.marketName || 'Unknown',
             netExposure,
+            runners,
+          };
+        })
+      );
+    },
+
+    parseFancyMarkets(json) {
+      const events = json.data || [];
+      return events.flatMap(event =>
+        (event.market || []).map(market => {
+          const ladder = market.ladderData || [];
+          const runners = ladder.map(entry => {
+            const start = entry.startScore || '0';
+            const end = entry.endScore === 'Infinite' ? 'Inf' : (entry.endScore || '?');
+            return {
+              name: `${start}-${end}`,
+              exposure: entry.amount ?? 0,
+            };
+          });
+          return {
+            id: `fancy-${event.eventName}-${market.marketName}`,
+            eventName: event.eventName || 'Unknown',
+            marketName: market.marketName || 'Unknown',
+            netExposure: Math.abs(market.netExposure ?? 0),
             runners,
           };
         })

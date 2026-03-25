@@ -34,11 +34,29 @@ async function ensureToken(client) {
   }
 
   const platformName = client.platform || 'winner7';
+  const platform = getPlatform(platformName);
   console.log(`[Auth] Re-logging in ${client.username} (${platformName})`);
   const password = decrypt(client.password_enc);
-  const { token, userId, exp } = await login(client.username, password, platformName);
-  await updateClientToken(client.username, platformName, token, exp, userId);
+  const { token, userId: loginUserId, exp } = await login(client.username, password, platformName);
 
+  let userId = loginUserId;
+  if (!userId && platform.userDetailsUrl) {
+    try {
+      const udRes = await proxyPost(
+        platform.userDetailsUrl,
+        platform.userDetailsBody(),
+        platform.authHeader(token),
+        platformName
+      );
+      const udJson = await udRes.json();
+      userId = platform.extractUserId(udJson);
+      console.log(`[Auth] Fetched userId for ${client.username} (${platformName}): ${userId}`);
+    } catch (err) {
+      console.error(`[Auth] getOneUser failed for ${client.username}: ${err.message}`);
+    }
+  }
+
+  await updateClientToken(client.username, platformName, token, exp, userId);
   return { token, userId };
 }
 

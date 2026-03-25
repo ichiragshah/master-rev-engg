@@ -25,6 +25,19 @@ async function fetchMarkets(token, client) {
   return res.json();
 }
 
+async function fetchFancyMarkets(token, client) {
+  const platformName = client.platform || 'winner7';
+  const platform = getPlatform(platformName);
+
+  const res = await proxyPost(
+    platform.fancyMarketsUrl,
+    platform.fancyMarketsBody(client),
+    platform.authHeader(token),
+    platformName
+  );
+  return res.json();
+}
+
 async function pollClient(client) {
   let token, userId;
   try {
@@ -50,7 +63,22 @@ async function pollClient(client) {
       console.log(`[Poller] ${client.username} (${platformName}) retry response:`, JSON.stringify(mkData).slice(0, 500));
     }
 
-    const allMarkets = platform.parseMarkets(mkData);
+    const regularMarkets = platform.parseMarkets(mkData);
+
+    let fancyMarkets = [];
+    const effectiveUserId = userId || client.user_id;
+    if (platform.fancyMarketsUrl && effectiveUserId) {
+      try {
+        const fancyClient = { ...client, user_id: effectiveUserId };
+        const fancyData = await fetchFancyMarkets(token, fancyClient);
+        console.log(`[Poller] ${client.username} (${platformName}) fancy response:`, JSON.stringify(fancyData).slice(0, 500));
+        fancyMarkets = platform.parseFancyMarkets(fancyData);
+      } catch (err) {
+        console.error(`[Poller] Fancy fetch failed for ${client.username}: ${err.message}`);
+      }
+    }
+
+    const allMarkets = [...regularMarkets, ...fancyMarkets];
     const totalExposure = allMarkets.reduce((sum, m) => sum + m.netExposure, 0);
 
     const key = clientKey(client);
