@@ -57,7 +57,7 @@ async function pollClient(client) {
     const key = clientKey(client);
     const prev = lastExposures.get(key);
     const isNew = prev == null && totalExposure > 0;
-    const changed = prev != null && totalExposure !== prev;
+    const changed = prev != null && totalExposure !== prev && totalExposure > 0;
 
     if (isNew || changed) {
       await sendMessage(chatId, exposureAlert(client, totalExposure, prev, allMarkets));
