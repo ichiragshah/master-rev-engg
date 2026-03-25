@@ -1,7 +1,8 @@
 const fetch = require('node-fetch');
 const {
-  updateClientChatId,
+  linkRecipientChatId,
   getClientByChatId,
+  getRecipientsByClientId,
   setClientActive,
 } = require('./db');
 const { PLATFORMS } = require('./platforms');
@@ -46,7 +47,7 @@ async function handleUpdate(update) {
   const tgUsername = msg.from.username || '';
 
   if (text === '/start') {
-    const linked = await updateClientChatId(tgUsername, chatId);
+    const linked = await linkRecipientChatId(tgUsername, chatId);
     if (linked) {
       await sendMessage(chatId,
         `Linked! Your Telegram is now connected.\n\nCommands:\n/status - View your config\n/pause - Pause alerts\n/resume - Resume alerts`
@@ -68,8 +69,13 @@ async function handleUpdate(update) {
   if (text === '/status') {
     const status = client.active ? 'Active' : 'Paused';
     const platformLabel = PLATFORMS[client.platform]?.name || client.platform || 'Winner7';
+    const recipients = await getRecipientsByClientId(client.id);
+    const recipientLines = recipients.map(r => {
+      const linked = r.telegram_chat_id ? 'linked' : 'pending /start';
+      return `  @${r.telegram_username} (${linked})`;
+    }).join('\n');
     await sendMessage(chatId,
-      `<b>Your Settings</b>\nPlatform: ${platformLabel}\nUser: ${client.username}\nSports: ${client.sports || 'All'}\nBook View: ${client.book_view || 'Total Book'}\nStatus: ${status}`
+      `<b>Your Settings</b>\nPlatform: ${platformLabel}\nUser: ${client.username}\nSports: ${client.sports || 'All'}\nBook View: ${client.book_view || 'Total Book'}\nStatus: ${status}\n\n<b>Alert Recipients:</b>\n${recipientLines}`
     );
     return;
   }

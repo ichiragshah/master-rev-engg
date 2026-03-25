@@ -1,4 +1,4 @@
-const { getAllActiveClients, updateClientToken } = require('./db');
+const { getAllActiveClients, updateClientToken, getRecipientChatIds } = require('./db');
 const { ensureToken } = require('./auth');
 const { sendMessage, exposureAlert } = require('./telegram');
 const { proxyPost } = require('./proxy-fetch');
@@ -34,7 +34,6 @@ async function pollClient(client) {
     return;
   }
 
-  const chatId = client.telegram_chat_id;
   const platformName = client.platform || 'winner7';
   const platform = getPlatform(platformName);
 
@@ -60,7 +59,9 @@ async function pollClient(client) {
     const changed = prev != null && totalExposure !== prev && totalExposure > 0;
 
     if (isNew || changed) {
-      await sendMessage(chatId, exposureAlert(client, totalExposure, prev, allMarkets));
+      const alertText = exposureAlert(client, totalExposure, prev, allMarkets);
+      const chatIds = await getRecipientChatIds(client.id);
+      await Promise.allSettled(chatIds.map(cid => sendMessage(cid, alertText)));
     }
     lastExposures.set(key, totalExposure);
   } catch (err) {

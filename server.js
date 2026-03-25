@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { initDB, registerClient, getAllClients } = require('./db');
+const { initDB, registerClient, addRecipients, getAllClients } = require('./db');
 const { encrypt } = require('./crypto');
 const { setWebhook, handleUpdate } = require('./telegram');
 const { startPoller } = require('./poller');
@@ -17,10 +17,17 @@ app.get('/health', (req, res) => {
 // Registration
 app.post('/register', async (req, res) => {
   try {
-    const { name, username, password, telegram_username, threshold, alert_type, sports, book_view, platform } = req.body;
+    const { name, username, password, telegram_username, telegram_usernames, threshold, alert_type, sports, book_view, platform } = req.body;
 
-    if (!username || !password || !telegram_username) {
-      return res.status(400).json({ success: false, message: 'Username, password, and Telegram username are required.' });
+    // Support both comma-separated telegram_usernames and single telegram_username
+    const rawUsernames = telegram_usernames
+      ? telegram_usernames.split(',').map(u => u.trim().replace('@', '')).filter(Boolean)
+      : telegram_username
+        ? [telegram_username.replace('@', '')]
+        : [];
+
+    if (!username || !password || rawUsernames.length === 0) {
+      return res.status(400).json({ success: false, message: 'Username, password, and at least one Telegram username are required.' });
     }
 
     const validPlatforms = ['winner7', 'leoexch'];
@@ -32,7 +39,7 @@ app.post('/register', async (req, res) => {
       name: name || username,
       username,
       password_enc,
-      telegram_username: telegram_username.replace('@', ''),
+      telegram_username: rawUsernames[0],
       threshold: parseInt(threshold, 10) || 50000,
       alert_type: alert_type || 'exposure_only',
       sports: sports || 'All',
@@ -40,10 +47,14 @@ app.post('/register', async (req, res) => {
       platform: selectedPlatform,
     });
 
+    // Store all recipients in alert_recipients table
+    await addRecipients(client.id, rawUsernames);
+
     const botUsername = process.env.BOT_USERNAME || 'your_bot';
+    const plural = rawUsernames.length > 1 ? `All ${rawUsernames.length} users need to` : 'Now';
     res.json({
       success: true,
-      message: `Registered! Now message @${botUsername} on Telegram and send /start to link your account.`,
+      message: `Registered! ${plural} message @${botUsername} on Telegram and send /start to link.`,
     });
   } catch (err) {
     console.error('[Register] Error:', err.message);

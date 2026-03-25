@@ -51,13 +51,40 @@ async function initDB() {
     END $$;
   `);
 
-  console.log('[DB] clients table ready');
+  // --- alert_recipients table ---
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS alert_recipients (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+      telegram_username VARCHAR(100) NOT NULL,
+      telegram_chat_id BIGINT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(client_id, telegram_username)
+    )
+  `);
+
+  // Migrate existing telegram data from clients into alert_recipients
+  await pool.query(`
+    INSERT INTO alert_recipients (client_id, telegram_username, telegram_chat_id)
+    SELECT id, LOWER(telegram_username), telegram_chat_id
+    FROM clients
+    WHERE telegram_username IS NOT NULL
+      AND telegram_username != ''
+    ON CONFLICT (client_id, telegram_username) DO NOTHING
+  `);
+
+  console.log('[DB] clients + alert_recipients tables ready');
 }
 
 async function getAllActiveClients() {
-  const { rows } = await pool.query(
-    'SELECT * FROM clients WHERE active = true AND telegram_chat_id IS NOT NULL'
-  );
+  const { rows } = await pool.query(`
+    SELECT * FROM clients
+    WHERE active = true
+      AND EXISTS (
+        SELECT 1 FROM alert_recipients ar
+        WHERE ar.client_id = clients.id AND ar.telegram_chat_id IS NOT NULL
+      )
+  `);
   return rows;
 }
 
@@ -78,6 +105,42 @@ async function registerClient(data) {
     [name, username, password_enc, telegram_username, threshold || 50000, alert_type || 'exposure_only', sports || 'All', book_view || 'Total Book', platform || 'winner7']
   );
   return rows[0];
+}
+
+async function addRecipients(clientId, usernames) {
+  if (!usernames || usernames.length === 0) return;
+  const values = usernames.map((u, i) => `($1, $${i + 2})`).join(', ');
+  const params = [clientId, ...usernames.map(u => u.toLowerCase())];
+  await pool.query(
+    `INSERT INTO alert_recipients (client_id, telegram_username)
+     VALUES ${values}
+     ON CONFLICT (client_id, telegram_username) DO NOTHING`,
+    params
+  );
+}
+
+async function getRecipientChatIds(clientId) {
+  const { rows } = await pool.query(
+    'SELECT telegram_chat_id FROM alert_recipients WHERE client_id = $1 AND telegram_chat_id IS NOT NULL',
+    [clientId]
+  );
+  return rows.map(r => r.telegram_chat_id);
+}
+
+async function getRecipientsByClientId(clientId) {
+  const { rows } = await pool.query(
+    'SELECT telegram_username, telegram_chat_id FROM alert_recipients WHERE client_id = $1 ORDER BY created_at',
+    [clientId]
+  );
+  return rows;
+}
+
+async function linkRecipientChatId(telegramUsername, chatId) {
+  const { rowCount } = await pool.query(
+    'UPDATE alert_recipients SET telegram_chat_id = $1 WHERE LOWER(telegram_username) = LOWER($2)',
+    [chatId, telegramUsername]
+  );
+  return rowCount > 0;
 }
 
 async function updateClientToken(username, platform, token, expiry, userId) {
@@ -113,7 +176,12 @@ async function setClientActive(chat_id, active) {
 
 async function getClientByChatId(chat_id) {
   const { rows } = await pool.query(
-    'SELECT * FROM clients WHERE telegram_chat_id = $1',
+    `SELECT c.* FROM clients c
+     WHERE c.telegram_chat_id = $1
+        OR EXISTS (
+          SELECT 1 FROM alert_recipients ar
+          WHERE ar.client_id = c.id AND ar.telegram_chat_id = $1
+        )`,
     [chat_id]
   );
   return rows[0] || null;
@@ -131,6 +199,10 @@ module.exports = {
   initDB,
   getAllActiveClients,
   registerClient,
+  addRecipients,
+  getRecipientChatIds,
+  getRecipientsByClientId,
+  linkRecipientChatId,
   updateClientToken,
   updateClientChatId,
   updateClientConfig,

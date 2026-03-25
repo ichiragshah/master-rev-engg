@@ -131,6 +131,31 @@
       border: 1px solid #5c1a1a;
       color: #f07070;
     }
+    .tg-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .tg-row input { flex: 1; }
+    .tg-btn {
+      width: 36px;
+      min-width: 36px;
+      padding: 0;
+      font-size: 18px;
+      line-height: 36px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .tg-btn.remove {
+      background: #5c1a1a;
+      color: #f07070;
+    }
+    .tg-btn.remove:hover { background: #7c2a2a; }
+    .tg-btn.add {
+      background: #1a3a1a;
+      color: #6fcf97;
+    }
+    .tg-btn.add:hover { background: #2a5a2a; }
   </style>
 </head>
 <body>
@@ -195,8 +220,13 @@
           </div>
         </div>
         <div class="field">
-          <label>Telegram Username * (without @)</label>
-          <input type="text" name="telegram_username" required placeholder="your_telegram">
+          <label>Telegram Usernames * (without @)</label>
+          <div id="tgList">
+            <div class="tg-row">
+              <input type="text" name="tg_user" required placeholder="telegram_user_1">
+              <button type="button" class="tg-btn add" onclick="addTgRow()" title="Add another">+</button>
+            </div>
+          </div>
         </div>
         <button type="submit">Register</button>
       </form>
@@ -227,9 +257,25 @@
       if (!anyChecked) allBox.checked = true;
     });
 
+    function addTgRow() {
+      const list = document.getElementById('tgList');
+      const count = list.querySelectorAll('.tg-row').length;
+      const row = document.createElement('div');
+      row.className = 'tg-row';
+      row.innerHTML = `<input type="text" name="tg_user" required placeholder="telegram_user_${count + 1}"><button type="button" class="tg-btn remove" onclick="removeTgRow(this)" title="Remove">-</button>`;
+      list.appendChild(row);
+    }
+
+    function removeTgRow(btn) {
+      const list = document.getElementById('tgList');
+      if (list.querySelectorAll('.tg-row').length > 1) {
+        btn.closest('.tg-row').remove();
+      }
+    }
+
     document.getElementById('regForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = e.target.querySelector('button');
+      const btn = e.target.querySelector('button[type="submit"]');
       const msg = document.getElementById('msg');
 
       btn.disabled = true;
@@ -239,9 +285,21 @@
 
       const fd = new FormData(e.target);
       const sports = fd.getAll('sport').join(',') || 'All';
+      const tgUsers = fd.getAll('tg_user').map(u => u.trim().replace('@', '')).filter(Boolean);
       const data = Object.fromEntries(fd);
       delete data.sport;
+      delete data.tg_user;
       data.sports = sports;
+      data.telegram_usernames = tgUsers.join(',');
+
+      if (tgUsers.length === 0) {
+        msg.textContent = 'At least one Telegram username is required.';
+        msg.className = 'msg error';
+        msg.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Register';
+        return;
+      }
 
       try {
         const res = await fetch('/register', {
@@ -255,7 +313,12 @@
         msg.className = json.success ? 'msg success' : 'msg error';
         msg.style.display = 'block';
 
-        if (json.success) e.target.reset();
+        if (json.success) {
+          e.target.reset();
+          // Reset telegram inputs to single row
+          const list = document.getElementById('tgList');
+          list.innerHTML = '<div class="tg-row"><input type="text" name="tg_user" required placeholder="telegram_user_1"><button type="button" class="tg-btn add" onclick="addTgRow()" title="Add another">+</button></div>';
+        }
       } catch (err) {
         msg.textContent = 'Network error. Please try again.';
         msg.className = 'msg error';
