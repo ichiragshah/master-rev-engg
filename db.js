@@ -1,5 +1,7 @@
 const { Pool } = require('pg');
 
+const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'DB', msg, ...data }));
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -14,7 +16,7 @@ async function initDB() {
       password_enc TEXT NOT NULL,
       telegram_chat_id BIGINT,
       telegram_username VARCHAR(100),
-      threshold INTEGER DEFAULT 50000,
+      threshold INTEGER DEFAULT 0,
       alert_type VARCHAR(30) DEFAULT 'exposure_only',
       active BOOLEAN DEFAULT true,
       token TEXT,
@@ -73,7 +75,7 @@ async function initDB() {
     ON CONFLICT (client_id, telegram_username) DO NOTHING
   `);
 
-  console.log('[DB] clients + alert_recipients tables ready');
+  log('INFO', 'clients + alert_recipients tables ready');
 }
 
 async function getAllActiveClients() {
@@ -102,8 +104,9 @@ async function registerClient(data) {
        sports = EXCLUDED.sports,
        book_view = EXCLUDED.book_view
      RETURNING id, username, platform`,
-    [name, username, password_enc, telegram_username, threshold || 50000, alert_type || 'exposure_only', sports || 'All', book_view || 'Total Book', platform || 'winner7']
+    [name, username, password_enc, telegram_username, threshold ?? 0, alert_type || 'exposure_only', sports || 'All', book_view || 'Total Book', platform || 'winner7']
   );
+  log('INFO', 'Client registered/updated', { username, platform: platform || 'winner7' });
   return rows[0];
 }
 
@@ -140,6 +143,7 @@ async function linkRecipientChatId(telegramUsername, chatId) {
     'UPDATE alert_recipients SET telegram_chat_id = $1 WHERE LOWER(telegram_username) = LOWER($2)',
     [chatId, telegramUsername]
   );
+  log('INFO', 'Link recipient', { telegramUsername, chatId, linked: rowCount > 0 });
   return rowCount > 0;
 }
 
@@ -187,6 +191,16 @@ async function getClientByChatId(chat_id) {
   return rows[0] || null;
 }
 
+async function getClientsByChatId(chatId) {
+  const { rows } = await pool.query(
+    `SELECT c.* FROM clients c
+     JOIN alert_recipients ar ON ar.client_id = c.id
+     WHERE ar.telegram_chat_id = $1 AND c.active = true`,
+    [chatId]
+  );
+  return rows;
+}
+
 async function getAllClients() {
   const { rows } = await pool.query(
     'SELECT id, name, username, telegram_chat_id, telegram_username, threshold, alert_type, sports, book_view, platform, active, user_id, created_at FROM clients'
@@ -230,5 +244,6 @@ module.exports = {
   updateClientConfig,
   setClientActive,
   getClientByChatId,
+  getClientsByChatId,
   getAllClients,
 };

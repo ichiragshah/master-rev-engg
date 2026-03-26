@@ -156,6 +156,28 @@
       color: #6fcf97;
     }
     .tg-btn.add:hover { background: #2a5a2a; }
+    .advanced-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 8px 0;
+      margin-bottom: 8px;
+      width: auto;
+    }
+    .advanced-toggle:hover { color: #aaa; background: none; }
+    .advanced-toggle .arrow { transition: transform 0.2s; display: inline-block; }
+    .advanced-toggle.open .arrow { transform: rotate(90deg); }
+    .advanced-section {
+      display: none;
+      border-top: 1px solid #222;
+      padding-top: 12px;
+    }
+    .advanced-section.open { display: block; }
   </style>
 </head>
 <body>
@@ -178,10 +200,6 @@
           </select>
         </div>
         <div class="field">
-          <label>Your Name</label>
-          <input type="text" name="name" placeholder="John Doe">
-        </div>
-        <div class="field">
           <label>Platform Username *</label>
           <input type="text" name="username" required placeholder="your_username">
         </div>
@@ -190,44 +208,49 @@
           <input type="password" name="password" required placeholder="your_password">
         </div>
         <div class="field">
-          <label>Alert Threshold in Rs (optional, default 50000)</label>
-          <input type="number" name="threshold" placeholder="50000" min="0">
-        </div>
-        <div class="field">
-          <label>Alert Type</label>
-          <select name="alert_type">
-            <option value="exposure_only">Net Exposure Only</option>
-            <option value="exposure_and_markets">Exposure + Markets</option>
-            <option value="all">Everything</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Monitor Sports</label>
-          <div class="checkbox-group" id="sportsGroup">
-            <label class="cb"><input type="checkbox" name="sport" value="All" checked> All</label>
-            <label class="cb"><input type="checkbox" name="sport" value="Cricket"> Cricket</label>
-            <label class="cb"><input type="checkbox" name="sport" value="Soccer"> Soccer</label>
-            <label class="cb"><input type="checkbox" name="sport" value="Tennis"> Tennis</label>
-            <label class="cb"><input type="checkbox" name="sport" value="Horse Racing"> Horse Racing</label>
-            <label class="cb"><input type="checkbox" name="sport" value="Greyhound Racing"> Greyhound Racing</label>
-          </div>
-        </div>
-        <div class="field">
-          <label>Book View</label>
-          <div class="radio-group">
-            <label class="rb"><input type="radio" name="book_view" value="Total Book" checked> Total Book <span class="hint">Your full book</span></label>
-            <label class="rb"><input type="radio" name="book_view" value="My PT"> My PT <span class="hint">Your percentage share only</span></label>
-          </div>
-        </div>
-        <div class="field">
           <label>Telegram Usernames * (without @)</label>
           <div id="tgList">
             <div class="tg-row">
-              <input type="text" name="tg_user" required placeholder="telegram_user_1">
+              <input type="text" name="tg_user" required placeholder="telegram_username">
               <button type="button" class="tg-btn add" onclick="addTgRow()" title="Add another">+</button>
             </div>
           </div>
         </div>
+
+        <button type="button" class="advanced-toggle" onclick="toggleAdvanced()">
+          <span class="arrow">&#9654;</span> Advanced options
+        </button>
+        <div id="advancedSection" class="advanced-section">
+          <div class="field">
+            <label>Alert Threshold in Rs (default 0 = every change)</label>
+            <input type="number" name="threshold" placeholder="0" min="0">
+          </div>
+          <div class="field">
+            <label>Alert Type</label>
+            <select name="alert_type">
+              <option value="exposure_only">Net Exposure Only</option>
+              <option value="exposure_and_markets">Exposure + Markets</option>
+              <option value="all">Everything</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Sports</label>
+            <div class="checkbox-group" id="sportsGroup">
+              <label class="cb"><input type="checkbox" name="sport" value="All" checked> All</label>
+              <label class="cb"><input type="checkbox" name="sport" value="Cricket"> Cricket</label>
+              <label class="cb"><input type="checkbox" name="sport" value="Soccer"> Soccer</label>
+              <label class="cb"><input type="checkbox" name="sport" value="Tennis"> Tennis</label>
+            </div>
+          </div>
+          <div class="field">
+            <label>Book View</label>
+            <div class="radio-group">
+              <label class="rb"><input type="radio" name="book_view" value="Total Book" checked> Total Book</label>
+              <label class="rb"><input type="radio" name="book_view" value="My PT"> My PT</label>
+            </div>
+          </div>
+        </div>
+
         <button type="submit">Register</button>
       </form>
 
@@ -236,14 +259,18 @@
   </div>
 
   <script>
-    // Show bot username in instructions
     fetch('/health').then(() => {
       const el = document.getElementById('bot-link');
-      // Bot username is rendered server-side via the page or we just show generic
       el.textContent = '@' + (window.__BOT_USERNAME || 'book_guard_bot');
     });
 
-    // Sports checkbox toggle: All unchecks others, others uncheck All
+    function toggleAdvanced() {
+      const btn = document.querySelector('.advanced-toggle');
+      const section = document.getElementById('advancedSection');
+      btn.classList.toggle('open');
+      section.classList.toggle('open');
+    }
+
     document.getElementById('sportsGroup').addEventListener('change', (e) => {
       const boxes = document.querySelectorAll('#sportsGroup input[type=checkbox]');
       const allBox = boxes[0];
@@ -252,7 +279,6 @@
       } else if (e.target.value !== 'All' && e.target.checked) {
         allBox.checked = false;
       }
-      // If nothing checked, re-check All
       const anyChecked = [...boxes].some(b => b.checked);
       if (!anyChecked) allBox.checked = true;
     });
@@ -315,9 +341,10 @@
 
         if (json.success) {
           e.target.reset();
-          // Reset telegram inputs to single row
           const list = document.getElementById('tgList');
-          list.innerHTML = '<div class="tg-row"><input type="text" name="tg_user" required placeholder="telegram_user_1"><button type="button" class="tg-btn add" onclick="addTgRow()" title="Add another">+</button></div>';
+          list.innerHTML = '<div class="tg-row"><input type="text" name="tg_user" required placeholder="telegram_username"><button type="button" class="tg-btn add" onclick="addTgRow()" title="Add another">+</button></div>';
+          document.querySelector('.advanced-toggle').classList.remove('open');
+          document.getElementById('advancedSection').classList.remove('open');
         }
       } catch (err) {
         msg.textContent = 'Network error. Please try again.';
