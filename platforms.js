@@ -3,6 +3,7 @@ const PLATFORMS = {
     name: 'Winner7',
     loginUrl: 'https://user-backend-api.playexchwin.com/api/member/memberLogin',
     marketsUrl: 'https://netexposure.playexchwin.com/api/Book/getBooksForBackend',
+    premiumMarketsUrl: 'https://artemis-bookmaker-v2.playexchwin.com/api/netExposure/getBooksForBackend',
     origin: 'https://backend.winner7.co',
 
     loginBody(username, password) {
@@ -51,6 +52,16 @@ const PLATFORMS = {
       };
     },
 
+    premiumMarketsBody(client) {
+      const body = {
+        selectedType: client.book_view || 'Total Book',
+        eventName: 'All',
+      };
+      const sports = client.sports || 'All';
+      if (sports !== 'All') body.eventType = sports;
+      return body;
+    },
+
     parseMarkets(json) {
       const events = json.data || [];
       const raw = events.flatMap(event => event.data || []);
@@ -65,6 +76,25 @@ const PLATFORMS = {
           runners: horses.map((r, i) => ({
             name: r.name || r.runnerName || r.selectionName || teams[i] || `Runner ${i + 1}`,
             exposure: r.amount ?? r.exposure ?? r.winLoss ?? r.pl ?? 0,
+          })),
+        };
+      });
+    },
+
+    parsePremiumMarkets(json) {
+      const outputArray = json.data?.data?.outputArray || [];
+      const raw = outputArray.flatMap(event => event.data || []);
+      return raw.map(item => {
+        const teams = (item.eventName || '').split(' v ');
+        const horses = item.horse || [];
+        return {
+          id: item.marketUniqueId || item.marketId || `pb-${item.eventName}-${item.marketName}`,
+          eventName: item.eventName || 'Unknown',
+          marketName: (item.marketName || 'Unknown') + ' (PB)',
+          netExposure: Math.abs(item.netExposure ?? 0),
+          runners: horses.map((r, i) => ({
+            name: r.name || r.runnerName || teams[i] || `Runner ${i + 1}`,
+            exposure: r.amount ?? 0,
           })),
         };
       });
