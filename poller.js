@@ -110,6 +110,19 @@ async function fetchFancyMarkets(token, client) {
   return res.json();
 }
 
+async function fetchPremiumMarkets(token, client) {
+  const platformName = client.platform || 'winner7';
+  const platform = getPlatform(platformName);
+
+  const res = await proxyPost(
+    platform.premiumMarketsUrl,
+    platform.premiumMarketsBody(client),
+    platform.authHeader(token),
+    platformName
+  );
+  return res.json();
+}
+
 // Core fetch logic — returns { totalExposure, markets, success, error }
 async function fetchClientExposure(client, { skipFancyIfZero = false } = {}) {
   let token, userId;
@@ -160,7 +173,19 @@ async function fetchClientExposure(client, { skipFancyIfZero = false } = {}) {
       log('INFO', 'Fancy fetch skipped (zero exposure)', { username: client.username, platform: platformName });
     }
 
-    const allMarkets = [...regularMarkets, ...fancyMarkets];
+    // Fetch premium bookmaker markets (Winner7 artemis endpoint)
+    let premiumMarkets = [];
+    if (platform.premiumMarketsUrl && !shouldSkipFancy) {
+      try {
+        const premiumData = await fetchPremiumMarkets(token, client);
+        log('INFO', 'Premium response', { username: client.username, platform: platformName, responseBody: JSON.stringify(premiumData).slice(0, 2000) });
+        premiumMarkets = platform.parsePremiumMarkets(premiumData);
+      } catch (err) {
+        log('ERROR', 'Premium fetch failed', { username: client.username, platform: platformName, error: err.message });
+      }
+    }
+
+    const allMarkets = [...regularMarkets, ...fancyMarkets, ...premiumMarkets];
     const totalExposure = allMarkets.reduce((sum, m) => sum + m.netExposure, 0);
 
     log('INFO', 'Exposure parsed', { username: client.username, platform: platformName, exposure: totalExposure, marketCount: allMarkets.length });
