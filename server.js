@@ -20,7 +20,7 @@ app.get('/health', (req, res) => {
 // Registration
 app.post('/register', async (req, res) => {
   try {
-    const { name, username, password, telegram_username, telegram_usernames, threshold, alert_type, sports, book_view, platform } = req.body;
+    const { username, password, telegram_username, telegram_usernames, threshold, alert_type, sports, book_view, platform } = req.body;
 
     // Support both comma-separated telegram_usernames and single telegram_username
     const rawUsernames = telegram_usernames
@@ -41,7 +41,7 @@ app.post('/register', async (req, res) => {
     const password_enc = encrypt(password);
 
     const client = await registerClient({
-      name: name || username,
+      name: username,
       username,
       password_enc,
       telegram_username: rawUsernames[0],
