@@ -19,7 +19,7 @@ function fmt(n) {
   return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
 }
 
-const POLL_INTERVAL = 60 * 1000;
+const POLL_INTERVAL = 30 * 1000;
 const MAX_SESSION_MS = 8 * 60 * 60 * 1000;
 
 const lastExposures = new Map();
@@ -174,8 +174,9 @@ async function fetchClientExposure(client, { skipFancyIfZero = false } = {}) {
     }
 
     // Fetch premium bookmaker markets (Winner7 artemis endpoint)
+    // Always fetch — regular can be empty while premium has data
     let premiumMarkets = [];
-    if (platform.premiumMarketsUrl && !shouldSkipFancy) {
+    if (platform.premiumMarketsUrl) {
       try {
         const premiumData = await fetchPremiumMarkets(token, client);
         log('INFO', 'Premium response', { username: client.username, platform: platformName, responseBody: JSON.stringify(premiumData).slice(0, 2000) });
