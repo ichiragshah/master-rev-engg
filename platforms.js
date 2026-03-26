@@ -162,6 +162,99 @@ const PLATFORMS = {
       );
     },
   },
+
+  lotus: {
+    name: 'Lotus',
+    loginUrl: 'https://admin.lotusbookx247.com/api/auth/login',
+    origin: 'https://admin.lotusbookx247.com',
+    marketsMethod: 'GET',
+
+    marketsUrl(client) {
+      return `https://admin.lotusbookx247.com/api/agency/${client.user_id}/risk-mgmt/net-exposure`;
+    },
+
+    loginBody(username, password) {
+      return { username, password, twoFacCode: '' };
+    },
+
+    extractToken(json, res) {
+      if (!json.success) throw new Error(json.status?.statusDesc || 'Login failed');
+      const token = res?.headers?.get?.('authorization');
+      if (!token) throw new Error('Login failed - no token in response header');
+      const user = json.result?.user;
+      if (!user) throw new Error('Login failed - no user data');
+      // JWT — decode for expiry
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString('utf-8'));
+      const exp = payload.exp;
+      const userId = user.name; // master name, used in API URLs
+      return { token, userId, exp };
+    },
+
+    authHeader(token) {
+      return { authorization: token };
+    },
+
+    marketsExtraHeaders(client) {
+      return { 'x-user-id': client.user_id };
+    },
+
+    marketsBody() {
+      return null;
+    },
+
+    isSessionExpired(json) {
+      return !json.success && (
+        json.status?.statusCode === '401' ||
+        json.status?.statusDesc?.toLowerCase().includes('unauthorized') ||
+        json.status?.statusDesc?.toLowerCase().includes('expired')
+      );
+    },
+
+    parseMarkets(json, client) {
+      const bookView = client?.book_view || 'Total Book';
+      const events = [
+        ...(json.result?.nonOutrights || []),
+        ...(json.result?.outrights || []),
+        ...(json.result?.betBuilders || []),
+      ];
+
+      return events.flatMap(event => {
+        const allMarkets = [
+          ...(event.matchOddsMarkets || []),
+          ...(event.otherMarkets || []),
+          ...(event.extraMarkets || []),
+        ];
+
+        return allMarkets.map(market => {
+          const selections = market.selections || [];
+          const runners = selections.map(s => {
+            let exposure;
+            if (bookView === 'My PT') {
+              exposure = s.profitAndLoss ?? 0;
+            } else if (bookView === 'Rate Book') {
+              exposure = s.obrProfitAndLoss ?? 0;
+            } else {
+              exposure = s.totalProfitAndLoss ?? 0;
+            }
+            return {
+              name: s.selectionName || `Runner ${s.selectionOrderIndex}`,
+              exposure,
+            };
+          });
+
+          const netExposure = runners.reduce((max, r) => Math.max(max, Math.abs(r.exposure)), 0);
+
+          return {
+            id: market.marketId || `${event.eventName}-${market.marketName}`,
+            eventName: event.eventName || 'Unknown',
+            marketName: market.marketName || 'Unknown',
+            netExposure,
+            runners,
+          };
+        });
+      });
+    },
+  },
 };
 
 function getPlatform(name) {

@@ -26,7 +26,7 @@ async function login(username, password, platformName) {
     throw new Error('Platform API unavailable - please try again later');
   }
 
-  const result = platform.extractToken(json);
+  const result = platform.extractToken(json, res);
   log('INFO', 'Login success', { username, platform: platformName, userId: result.userId });
   return result;
 }
