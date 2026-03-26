@@ -174,8 +174,9 @@ async function fetchClientExposure(client, { skipFancyIfZero = false } = {}) {
     }
 
     // Fetch premium bookmaker markets (Winner7 artemis endpoint)
+    // Always fetch — regular can be empty while premium has data
     let premiumMarkets = [];
-    if (platform.premiumMarketsUrl && !shouldSkipFancy) {
+    if (platform.premiumMarketsUrl) {
       try {
         const premiumData = await fetchPremiumMarkets(token, client);
         log('INFO', 'Premium response', { username: client.username, platform: platformName, responseBody: JSON.stringify(premiumData).slice(0, 2000) });
