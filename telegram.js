@@ -14,6 +14,13 @@ const timeIST = () => new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolka
 const BOT_TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const API = () => `https://api.telegram.org/bot${BOT_TOKEN()}`;
 
+async function fetchWithTimeout(promise, ms = 5000) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('timeout')), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
 async function setWebhook(appUrl) {
   const url = `${appUrl}/telegram-webhook`;
   const res = await fetch(`${API()}/setWebhook`, {
@@ -53,7 +60,7 @@ function formatDuration(ms) {
   const hours = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
   if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
+  return `${totalMin}m`;
 }
 
 function fmt(n) {
@@ -169,7 +176,7 @@ async function handleUpdate(update) {
   }
 
   if (text === '/status' || text === '/check') {
-    const { fetchClientExposure, isPollingActive, getLastPollTime, clientKey, isSystemHealthy } = require('./poller');
+    const { fetchClientExposure, isPollingActive, getLastPollTime, clientKey, isSystemHealthy, getLastExposure } = require('./poller');
     const clients = await getClientsByChatId(chatId);
 
     if (clients.length === 0) {
@@ -180,31 +187,49 @@ async function handleUpdate(update) {
     const polling = isPollingActive(chatId);
     const healthy = isSystemHealthy();
 
-    let lines = `<b>📊 Live Status</b>\n`;
-    for (const c of clients) {
+    // Parallel fetch all clients with 5s timeout
+    const results = await Promise.allSettled(
+      clients.map(c => fetchWithTimeout(fetchClientExposure(c)))
+    );
+
+    let lines = '';
+    for (let i = 0; i < clients.length; i++) {
+      const c = clients[i];
       const platformLabel = PLATFORMS[c.platform]?.name || c.platform || 'Winner7';
       const key = clientKey(c);
       const lastPoll = getLastPollTime(key);
       const lastPollStr = lastPoll ? `${Math.round((Date.now() - lastPoll) / 1000)}s ago` : 'never';
+      const recipients = await getRecipientsByClientId(c.id);
+      const recipientStr = recipients.map(r => `@${r.telegram_username}`).join(', ');
 
-      // Live fetch
-      const result = await fetchClientExposure(c);
-
-      if (result.success) {
-        lines += `\n👤 <b>${c.username}</b> — ${platformLabel}`;
-        lines += `\n   💰 Exposure: <b>${fmt(result.totalExposure)}</b>`;
-        lines += `\n   📈 Markets: ${result.markets.length}`;
-        lines += `\n   🎯 Threshold: ${fmt(c.threshold)}`;
-        lines += `\n   ⏱ Last poll: ${lastPollStr}`;
+      const r = results[i];
+      let exposureLine;
+      if (r.status === 'fulfilled' && r.value.success) {
+        exposureLine = `💰 Exposure: <b>${fmt(r.value.totalExposure)}</b>`;
       } else {
-        lines += `\n👤 <b>${c.username}</b> — ${platformLabel}`;
-        lines += `\n   ❌ Error: ${result.error}`;
-        lines += `\n   ⏱ Last poll: ${lastPollStr}`;
+        const cached = getLastExposure(key);
+        if (cached !== null) {
+          exposureLine = `💰 Exposure: <b>${fmt(cached)}</b> <i>(cached)</i>`;
+        } else {
+          exposureLine = `💰 Exposure: <i>unavailable</i>`;
+        }
       }
+
+      lines += `📊 <b>Status</b>  •  ${c.username}  •  ${platformLabel}\n`;
+      lines += `━━━━━━━━━━━━━━━━━━━━\n`;
+      lines += `${exposureLine}\n`;
+      lines += `📈 Last poll: ${lastPollStr}\n`;
+      lines += `🔄 Polling: ${polling ? 'Active' : 'Inactive'}\n`;
+      lines += `━━━━━━━━━━━━━━━━━━━━\n`;
+      lines += `⚙️ Threshold: ${fmt(c.threshold)}\n`;
+      lines += `📊 Book: ${c.book_view || 'Total Book'}  •  ${c.sports || 'All'}\n`;
+      lines += `🔔 Alerts: ${c.alert_type || 'exposure_only'}\n`;
+      lines += `👥 Recipients: ${recipientStr || 'none'}\n`;
+
+      if (i < clients.length - 1) lines += '\n';
     }
 
-    lines += `\n\n🔄 Polling: ${polling ? 'Active' : 'Inactive'}`;
-    lines += `\n💚 System: ${healthy ? 'Healthy' : 'Degraded'}`;
+    lines += `\n🖥 System: ${healthy ? '✅ Healthy' : '⚠️ Degraded'}`;
     lines += `\n🕐 ${timeIST()}`;
 
     await sendMessage(chatId, lines);

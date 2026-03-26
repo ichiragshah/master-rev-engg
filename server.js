@@ -3,7 +3,7 @@ const path = require('path');
 const { pool, initDB, registerClient, addRecipients, getAllClients } = require('./db');
 const { encrypt } = require('./crypto');
 const { setWebhook, handleUpdate, notifyAdmin } = require('./telegram');
-const { startPoller, setSystemHealthy, getActivePollerCount } = require('./poller');
+const { startPoller, setSystemHealthy, getActivePollerCount, getActivePollerIds, triggerAutoStop } = require('./poller');
 const { proxyGet } = require('./proxy-fetch');
 
 const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'SERVER', msg, ...data }));
@@ -110,8 +110,8 @@ async function systemHealthCheck() {
   }
 
   try {
-    const res = await proxyGet('https://ipv4.icanhazip.com');
-    proxyOk = res.ok;
+    const res = await proxyGet('https://user-backend-api.playexchwin.com/api/maintenance/getMaintenanceStatus');
+    proxyOk = res.ok || res.status < 500;
   } catch (err) {
     log('ERROR', 'Health: Proxy check failed', { error: err.message });
   }
@@ -129,6 +129,31 @@ async function systemHealthCheck() {
     await notifyAdmin(`🟢 <b>System Recovered</b>\nDB: OK | Proxy: OK | Pollers: ${activePollers}`);
   }
   lastHealthState = healthy;
+}
+
+// Daily auto-stop at 1:00 AM IST
+function scheduleDailyStop() {
+  function msUntil1amIST() {
+    const now = new Date();
+    // 1:00 AM IST = 19:30 UTC (previous day)
+    const target = new Date(now);
+    target.setUTCHours(19, 30, 0, 0);
+    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+    return target.getTime() - now.getTime();
+  }
+
+  async function runDailyStop() {
+    const ids = getActivePollerIds();
+    for (const chatId of ids) {
+      await triggerAutoStop(chatId, 'daily_1am');
+    }
+    log('INFO', 'Daily 1am stop complete', { stopped: ids.length });
+    setTimeout(runDailyStop, msUntil1amIST());
+  }
+
+  const ms = msUntil1amIST();
+  setTimeout(runDailyStop, ms);
+  log('INFO', 'Daily stop scheduled', { nextStopIn: `${Math.round(ms / 60000)}m`, nextStopAt: new Date(Date.now() + ms).toISOString() });
 }
 
 // Global error handlers
@@ -156,6 +181,7 @@ async function start() {
     }
 
     startPoller();
+    scheduleDailyStop();
 
     app.listen(PORT, () => {
       log('INFO', 'Server started', { port: PORT, appUrl, botUsername: process.env.BOT_USERNAME });

@@ -7,7 +7,20 @@ const { getPlatform } = require('./platforms');
 const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'POLL', msg, ...data }));
 const timeIST = () => new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true, weekday: 'short', day: '2-digit', month: 'short' });
 
+function formatDuration(ms) {
+  const totalMin = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${totalMin}m`;
+}
+
+function fmt(n) {
+  return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
+}
+
 const POLL_INTERVAL = 30 * 1000;
+const MAX_SESSION_MS = 8 * 60 * 60 * 1000;
 
 const lastExposures = new Map();
 const activePollers = new Set();
@@ -45,6 +58,10 @@ function getLastPollTime(key) {
   return lastPollTimes.get(key) || null;
 }
 
+function getLastExposure(key) {
+  return lastExposures.has(key) ? lastExposures.get(key) : null;
+}
+
 function isSystemHealthy() {
   return systemHealthy;
 }
@@ -55,6 +72,10 @@ function setSystemHealthy(healthy) {
 
 function getActivePollerCount() {
   return activePollers.size;
+}
+
+function getActivePollerIds() {
+  return [...activePollers];
 }
 
 async function fetchMarkets(token, client) {
@@ -136,6 +157,39 @@ async function fetchClientExposure(client) {
   }
 }
 
+async function triggerAutoStop(chatId, reason) {
+  if (!activePollers.has(chatId)) return;
+  activePollers.delete(chatId);
+
+  const session = sessionState.get(chatId) || {};
+  const duration = session.startTime ? Date.now() - session.startTime : 0;
+
+  const reasonMsg = {
+    daily_1am: 'Daily auto-stop at 1:00 AM.',
+    max_duration: 'Session exceeded 8 hours.',
+  }[reason] || reason;
+
+  const msg =
+    `🏁 <b>Auto-stopped</b>\n` +
+    `${reasonMsg}\n\n` +
+    `⏱ Duration: ${formatDuration(duration)}\n` +
+    `💰 Peak: ${fmt(session.peakExposure || 0)}\n` +
+    `🚨 Alerts sent: ${session.alertsSent || 0}\n\n` +
+    `Send /chalu to start receiving exposure alerts when the match is live.`;
+
+  await sendMessage(chatId, msg);
+  await notifyAdmin(
+    `🏁 <b>Auto-stopped</b>  •  reason: ${reason}\n` +
+    `💬 chat: ${chatId}\n` +
+    `⏱ ${formatDuration(duration)}  •  ` +
+    `peak: ${fmt(session.peakExposure || 0)}\n` +
+    `🕐 ${timeIST()}`
+  );
+
+  resetSessionState(chatId);
+  log('INFO', 'Auto-stopped', { chatId, reason, duration: formatDuration(duration) });
+}
+
 async function pollClient(client) {
   const key = clientKey(client);
   const platformName = client.platform || 'winner7';
@@ -203,8 +257,7 @@ async function pollClient(client) {
       if (session) session.alertsSent++;
     }
 
-    const fmtExp = n => '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
-    await notifyAdmin(`📊 Alert: ${client.username} (${platformName}) — exposure ${fmtExp(result.totalExposure)}`);
+    await notifyAdmin(`📊 Alert: ${client.username} (${platformName}) — exposure ${fmt(result.totalExposure)}`);
   } else {
     log('INFO', 'Alert skipped', { username: client.username, platform: platformName, exposure: result.totalExposure, prev });
   }
@@ -214,6 +267,16 @@ async function pollClient(client) {
 }
 
 async function pollAll() {
+  if (activePollers.size === 0) return;
+
+  // 8-hour cap check
+  for (const chatId of [...activePollers]) {
+    const session = sessionState.get(chatId);
+    if (session && (Date.now() - session.startTime) > MAX_SESSION_MS) {
+      await triggerAutoStop(chatId, 'max_duration');
+    }
+  }
+
   if (activePollers.size === 0) return;
 
   const chatIds = [...activePollers];
@@ -249,8 +312,11 @@ module.exports = {
   resetSessionState,
   isPollingActive,
   getLastPollTime,
+  getLastExposure,
   isSystemHealthy,
   setSystemHealthy,
   getActivePollerCount,
+  getActivePollerIds,
   fetchClientExposure,
+  triggerAutoStop,
 };
