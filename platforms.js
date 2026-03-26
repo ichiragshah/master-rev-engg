@@ -53,13 +53,11 @@ const PLATFORMS = {
     },
 
     premiumMarketsBody(client) {
-      const body = {
+      return {
+        eventType: client.sports || 'All',
         selectedType: client.book_view || 'Total Book',
         eventName: 'All',
       };
-      const sports = client.sports || 'All';
-      if (sports !== 'All') body.eventType = sports;
-      return body;
     },
 
     parseMarkets(json) {
