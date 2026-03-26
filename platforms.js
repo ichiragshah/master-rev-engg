@@ -32,17 +32,20 @@ const PLATFORMS = {
     },
 
     marketsBody(client, token) {
+      const filter = {
+        user: client.user_id,
+        eventname: 'All',
+        level: 'Master',
+        status: { $ne: 'Done' },
+        bookmakerSessionFlag: 'all',
+        _accessToken: token,
+      };
+      // API expects eventType omitted for "All", not "All" as a value
+      const sports = client.sports || 'All';
+      if (sports !== 'All') filter.eventType = sports;
       return {
         _accessToken: token,
-        filter: {
-          user: client.user_id,
-          eventname: 'All',
-          level: 'Master',
-          status: { $ne: 'Done' },
-          eventType: client.sports || 'All',
-          bookmakerSessionFlag: 'all',
-          _accessToken: token,
-        },
+        filter,
         selectedType: client.book_view || 'Total Book',
         page: 1,
       };
