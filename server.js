@@ -187,9 +187,9 @@ async function start() {
       log('INFO', 'Server started', { port: PORT, appUrl, botUsername: process.env.BOT_USERNAME });
     });
 
-    // Health check: first at 30s, then every 5 min
+    // Health check: first at 30s, then every 30 min
     setTimeout(systemHealthCheck, 30_000);
-    setInterval(systemHealthCheck, 5 * 60 * 1000);
+    setInterval(systemHealthCheck, 30 * 60 * 1000);
   } catch (err) {
     log('ERROR', 'Fatal startup error', { error: err.message, stack: err.stack });
     process.exit(1);

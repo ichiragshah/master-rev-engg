@@ -21,8 +21,10 @@ async function proxyPost(targetUrl, body, extraHeaders, platformName) {
 
   try {
     const res = await fetch(targetUrl, { method: 'POST', headers, body: bodyStr, agent });
-    log('INFO', 'POST complete', { url: targetUrl, status: res.status, durationMs: Date.now() - start, proxied: !!agent });
-    return res;
+    const text = await res.text();
+    const bytes = Buffer.byteLength(text, 'utf8');
+    log('INFO', 'POST complete', { url: targetUrl, status: res.status, bytes, durationMs: Date.now() - start, proxied: !!agent });
+    return { ok: res.ok, status: res.status, json: () => JSON.parse(text), text: () => text, bytes };
   } catch (err) {
     log('ERROR', 'POST failed', { url: targetUrl, error: err.message, durationMs: Date.now() - start, proxied: !!agent });
     throw err;
@@ -35,8 +37,10 @@ async function proxyGet(url) {
 
   try {
     const res = await fetch(url, { agent });
-    log('INFO', 'GET complete', { url, status: res.status, durationMs: Date.now() - start, proxied: !!agent });
-    return res;
+    const text = await res.text();
+    const bytes = Buffer.byteLength(text, 'utf8');
+    log('INFO', 'GET complete', { url, status: res.status, bytes, durationMs: Date.now() - start, proxied: !!agent });
+    return { ok: res.ok, status: res.status, json: () => JSON.parse(text), text: () => text, bytes };
   } catch (err) {
     log('ERROR', 'GET failed', { url, error: err.message, durationMs: Date.now() - start, proxied: !!agent });
     throw err;

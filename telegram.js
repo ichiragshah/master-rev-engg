@@ -139,7 +139,7 @@ async function handleUpdate(update) {
       clientLines += `\n👤 <b>${c.username}</b> — ${platformLabel}\n   Threshold: ${fmt(c.threshold)} | ${c.book_view || 'Total Book'} | ${c.sports || 'All'}`;
     }
 
-    const response = `✅ <b>Monitoring Started</b>\n${clientLines}\n\n🕐 Started at ${timeIST()}\n⏱ Polling every 30s\n\nSend /khatam to stop.`;
+    const response = `✅ <b>Monitoring Started</b>\n${clientLines}\n\n🕐 Started at ${timeIST()}\n⏱ Polling every 60s\n\nSend /khatam to stop.`;
     await sendMessage(chatId, response);
 
     log('INFO', 'Command handled', { chatId, command: '/chalu', clientCount: clients.length });
