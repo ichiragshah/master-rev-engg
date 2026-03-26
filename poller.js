@@ -19,7 +19,7 @@ function fmt(n) {
   return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
 }
 
-const POLL_INTERVAL = 60 * 1000;
+const POLL_INTERVAL = 30 * 1000;
 const MAX_SESSION_MS = 8 * 60 * 60 * 1000;
 
 const lastExposures = new Map();
