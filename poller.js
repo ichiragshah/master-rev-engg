@@ -19,7 +19,7 @@ function fmt(n) {
   return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
 }
 
-const POLL_INTERVAL = 30 * 1000;
+const POLL_INTERVAL = 60 * 1000;
 const MAX_SESSION_MS = 8 * 60 * 60 * 1000;
 
 const lastExposures = new Map();
@@ -105,7 +105,7 @@ async function fetchFancyMarkets(token, client) {
 }
 
 // Core fetch logic — returns { totalExposure, markets, success, error }
-async function fetchClientExposure(client) {
+async function fetchClientExposure(client, { skipFancyIfZero = false } = {}) {
   let token, userId;
   try {
     ({ token, userId } = await ensureToken(client));
@@ -132,10 +132,16 @@ async function fetchClientExposure(client) {
     }
 
     const regularMarkets = platform.parseMarkets(mkData);
+    const regularExposure = regularMarkets.reduce((sum, m) => sum + m.netExposure, 0);
 
+    // Skip fancy markets fetch when regular exposure is 0 and unchanged
     let fancyMarkets = [];
+    const key = clientKey(client);
+    const prevExposure = lastExposures.get(key);
+    const shouldSkipFancy = skipFancyIfZero && regularExposure === 0 && prevExposure === 0;
+
     const effectiveUserId = userId || client.user_id;
-    if (platform.fancyMarketsUrl && effectiveUserId) {
+    if (platform.fancyMarketsUrl && effectiveUserId && !shouldSkipFancy) {
       try {
         const fancyClient = { ...client, user_id: effectiveUserId };
         const fancyData = await fetchFancyMarkets(token, fancyClient);
@@ -144,6 +150,8 @@ async function fetchClientExposure(client) {
       } catch (err) {
         log('ERROR', 'Fancy fetch failed', { username: client.username, platform: platformName, error: err.message });
       }
+    } else if (shouldSkipFancy) {
+      log('INFO', 'Fancy fetch skipped (zero exposure)', { username: client.username, platform: platformName });
     }
 
     const allMarkets = [...regularMarkets, ...fancyMarkets];
@@ -195,7 +203,7 @@ async function pollClient(client) {
   const platformName = client.platform || 'winner7';
   const start = Date.now();
 
-  const result = await fetchClientExposure(client);
+  const result = await fetchClientExposure(client, { skipFancyIfZero: true });
 
   if (!result.success) {
     // Track failures
