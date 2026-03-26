@@ -242,12 +242,20 @@ async function pollClient(client) {
 
   // Check if alert needed
   const prev = lastExposures.get(key);
-  const isNew = prev == null && result.totalExposure > 0;
-  const changed = prev != null && result.totalExposure !== prev && result.totalExposure > 0;
+  const absExposure = Math.abs(result.totalExposure);
+  const threshold = client.threshold ?? 0;
+  const meetsThreshold = absExposure >= threshold;
+  const isFirstPoll = prev == null;
+  const changed = !isFirstPoll && result.totalExposure !== prev;
 
-  if (isNew || changed) {
+  // Always store exposure (needed for /status cached values)
+  lastExposures.set(key, result.totalExposure);
+
+  if (isFirstPoll) {
+    log('INFO', 'First poll, storing baseline', { username: client.username, platform: platformName, exposure: result.totalExposure, threshold });
+  } else if (meetsThreshold && changed) {
     const alertText = exposureAlert(client, result.totalExposure, prev, result.markets);
-    log('INFO', 'Alert fired', { username: client.username, platform: platformName, exposure: result.totalExposure, prev, delta: prev != null ? result.totalExposure - prev : null });
+    log('INFO', 'Alert fired', { username: client.username, platform: platformName, exposure: result.totalExposure, prev, threshold, delta: result.totalExposure - prev });
 
     await Promise.allSettled(chatIds.map(cid => sendMessage(cid, alertText)));
 
@@ -257,12 +265,10 @@ async function pollClient(client) {
       if (session) session.alertsSent++;
     }
 
-    await notifyAdmin(`📊 Alert: ${client.username} (${platformName}) — exposure ${fmt(result.totalExposure)}`);
+    await notifyAdmin(`📊 Alert: ${client.username} (${platformName}) — exposure ${fmt(result.totalExposure)} (threshold ${fmt(threshold)})`);
   } else {
-    log('INFO', 'Alert skipped', { username: client.username, platform: platformName, exposure: result.totalExposure, prev });
+    log('INFO', 'Alert skipped', { username: client.username, platform: platformName, exposure: result.totalExposure, prev, threshold, meetsThreshold, changed });
   }
-
-  lastExposures.set(key, result.totalExposure);
   log('INFO', 'Cycle complete', { username: client.username, platform: platformName, durationMs: Date.now() - start });
 }
 

@@ -246,9 +246,13 @@ function exposureAlert(client, totalExposure, prevExposure, markets) {
     ? `📈 Change          <b>${diff >= 0 ? '+' : ''}${fmt(diff)}</b>\n`
     : '';
 
+  const alertType = client.alert_type || 'exposure_only';
   let marketLines = '';
-  if (markets && markets.length > 0) {
-    markets.slice(0, 3).forEach(m => {
+
+  // Include market breakdown based on alert_type
+  if (alertType !== 'exposure_only' && markets && markets.length > 0) {
+    const maxMarkets = alertType === 'all' ? markets.length : 3;
+    markets.slice(0, maxMarkets).forEach(m => {
       marketLines += `\n🏏 <b>${m.eventName}</b>  •  ${m.marketName}\n`;
       m.runners.forEach(r => {
         const icon = r.exposure >= 0 ? '✅' : '🔴';

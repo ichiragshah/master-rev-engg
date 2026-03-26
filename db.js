@@ -16,7 +16,7 @@ async function initDB() {
       password_enc TEXT NOT NULL,
       telegram_chat_id BIGINT,
       telegram_username VARCHAR(100),
-      threshold INTEGER DEFAULT 50000,
+      threshold INTEGER DEFAULT 0,
       alert_type VARCHAR(30) DEFAULT 'exposure_only',
       active BOOLEAN DEFAULT true,
       token TEXT,
@@ -104,7 +104,7 @@ async function registerClient(data) {
        sports = EXCLUDED.sports,
        book_view = EXCLUDED.book_view
      RETURNING id, username, platform`,
-    [name, username, password_enc, telegram_username, threshold || 50000, alert_type || 'exposure_only', sports || 'All', book_view || 'Total Book', platform || 'winner7']
+    [name, username, password_enc, telegram_username, threshold ?? 0, alert_type || 'exposure_only', sports || 'All', book_view || 'Total Book', platform || 'winner7']
   );
   log('INFO', 'Client registered/updated', { username, platform: platform || 'winner7' });
   return rows[0];

@@ -45,7 +45,7 @@ app.post('/register', async (req, res) => {
       username,
       password_enc,
       telegram_username: rawUsernames[0],
-      threshold: parseInt(threshold, 10) || 50000,
+      threshold: parseInt(threshold, 10) || 0,
       alert_type: alert_type || 'exposure_only',
       sports: sports || 'All',
       book_view: book_view || 'Total Book',
