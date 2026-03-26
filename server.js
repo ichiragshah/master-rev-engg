@@ -33,7 +33,7 @@ app.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Username, password, and at least one Telegram username are required.' });
     }
 
-    const validPlatforms = ['winner7', 'leoexch'];
+    const validPlatforms = ['winner7', 'leoexch', 'lotus'];
     const selectedPlatform = validPlatforms.includes(platform) ? platform : 'winner7';
 
     log('INFO', 'Registration attempt', { username, platform: selectedPlatform });

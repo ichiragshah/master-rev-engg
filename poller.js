@@ -1,7 +1,7 @@
 const { getActiveClientsForChatIds, updateClientToken, getRecipientChatIds } = require('./db');
 const { ensureToken } = require('./auth');
 const { sendMessage, exposureAlert, notifyAdmin } = require('./telegram');
-const { proxyPost } = require('./proxy-fetch');
+const { proxyPost, proxyGet } = require('./proxy-fetch');
 const { getPlatform } = require('./platforms');
 
 const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'POLL', msg, ...data }));
@@ -82,12 +82,18 @@ async function fetchMarkets(token, client) {
   const platformName = client.platform || 'winner7';
   const platform = getPlatform(platformName);
 
-  const res = await proxyPost(
-    platform.marketsUrl,
-    platform.marketsBody(client),
-    platform.authHeader(token),
-    platformName
-  );
+  const url = typeof platform.marketsUrl === 'function'
+    ? platform.marketsUrl(client)
+    : platform.marketsUrl;
+
+  if (platform.marketsMethod === 'GET') {
+    const authHeaders = { ...platform.authHeader(token) };
+    if (platform.marketsExtraHeaders) Object.assign(authHeaders, platform.marketsExtraHeaders(client));
+    const res = await proxyGet(url, authHeaders, platformName);
+    return res.json();
+  }
+
+  const res = await proxyPost(url, platform.marketsBody(client, token), platform.authHeader(token), platformName);
   return res.json();
 }
 
@@ -121,7 +127,7 @@ async function fetchClientExposure(client, { skipFancyIfZero = false } = {}) {
     log('INFO', 'Raw response', { username: client.username, platform: platformName, responseBody: JSON.stringify(mkData).slice(0, 2000) });
 
     // Handle session expired
-    if (mkData.isLoggedOut || mkData.customStatus === 4000 || mkData.message?.includes('Session Has Expired')) {
+    if (platform.isSessionExpired?.(mkData) || mkData.isLoggedOut || mkData.customStatus === 4000 || mkData.message?.includes('Session Has Expired')) {
       log('INFO', 'Session expired, re-login', { username: client.username, platform: platformName });
       await updateClientToken(client.username, platformName, null, null, null);
       const fresh = await ensureToken({ ...client, token: null, token_expiry: null });
@@ -131,7 +137,7 @@ async function fetchClientExposure(client, { skipFancyIfZero = false } = {}) {
       log('INFO', 'Retry response', { username: client.username, platform: platformName, responseBody: JSON.stringify(mkData).slice(0, 2000) });
     }
 
-    const regularMarkets = platform.parseMarkets(mkData);
+    const regularMarkets = platform.parseMarkets(mkData, client);
     const regularExposure = regularMarkets.reduce((sum, m) => sum + m.netExposure, 0);
 
     // Skip fancy markets fetch when regular exposure is 0 and unchanged
