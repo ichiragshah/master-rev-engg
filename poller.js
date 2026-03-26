@@ -93,7 +93,7 @@ async function fetchMarkets(token, client) {
     return res.json();
   }
 
-  const res = await proxyPost(url, platform.marketsBody(client), platform.authHeader(token), platformName);
+  const res = await proxyPost(url, platform.marketsBody(client, token), platform.authHeader(token), platformName);
   return res.json();
 }
 

@@ -2,7 +2,7 @@ const PLATFORMS = {
   winner7: {
     name: 'Winner7',
     loginUrl: 'https://user-backend-api.playexchwin.com/api/member/memberLogin',
-    marketsUrl: 'https://artemis-bookmaker-v2.playexchwin.com/api/netExposure/getBooksForBackend',
+    marketsUrl: 'https://netexposure.playexchwin.com/api/Book/getBooksForBackend',
     origin: 'https://backend.winner7.co',
 
     loginBody(username, password) {
@@ -31,17 +31,26 @@ const PLATFORMS = {
       return { 'x-key-id': `Bearer ${token}` };
     },
 
-    marketsBody(client) {
+    marketsBody(client, token) {
       return {
-        eventType: client.sports || 'All',
+        _accessToken: token,
+        filter: {
+          user: client.user_id,
+          eventname: 'All',
+          level: 'Master',
+          status: { $ne: 'Done' },
+          eventType: client.sports || 'All',
+          bookmakerSessionFlag: 'all',
+          _accessToken: token,
+        },
         selectedType: client.book_view || 'Total Book',
-        eventName: 'All',
+        page: 1,
       };
     },
 
     parseMarkets(json) {
-      const outputArray = json.data?.data?.outputArray || [];
-      const raw = outputArray.flatMap(event => event.data || []);
+      const events = json.data || [];
+      const raw = events.flatMap(event => event.data || []);
       return raw.map(item => {
         const teams = (item.eventName || '').split(' v ');
         const horses = item.horse || item.runners || item.selections || [];
