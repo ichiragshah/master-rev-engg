@@ -4,6 +4,7 @@ const PLATFORMS = {
     loginUrl: 'https://user-backend-api.playexchwin.com/api/member/memberLogin',
     marketsUrl: 'https://netexposure.playexchwin.com/api/Book/getBooksForBackend',
     premiumMarketsUrl: 'https://artemis-bookmaker-v2.playexchwin.com/api/netExposure/getBooksForBackend',
+    memberDataUrl: 'https://user-backend-api.playexchwin.com/api/Member/searchMemberData',
     origin: 'https://backend.winner7.co',
 
     loginBody(username, password) {
@@ -50,6 +51,23 @@ const PLATFORMS = {
         selectedType: client.book_view || 'Total Book',
         page: 1,
       };
+    },
+
+    memberDataBody(token) {
+      return { page: 1, type: '', keyword: '', _accessToken: token };
+    },
+
+    parseMemberData(json) {
+      const results = json.data?.results || [];
+      return results.map(r => ({
+        username: r.username,
+        displayName: r.displayName || r.username,
+        creditLimit: r.creditLimit || 0,
+        netExposure: r.netExposure || 0,
+        winnings: r.winnings || 0,
+        availableCredit: r.playerBalance ?? r.balance ?? 0,
+        status: r.status || 'Unknown',
+      }));
     },
 
     premiumMarketsBody(client) {
