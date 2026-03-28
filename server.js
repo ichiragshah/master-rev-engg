@@ -20,7 +20,7 @@ app.get('/health', (req, res) => {
 // Registration
 app.post('/register', async (req, res) => {
   try {
-    const { username, password, telegram_username, telegram_usernames, threshold, alert_type, sports, book_view, platform } = req.body;
+    const { username, password, telegram_username, telegram_usernames, threshold, alert_type, sports, book_view, platform, currency_type, upline } = req.body;
 
     // Support both comma-separated telegram_usernames and single telegram_username
     const rawUsernames = telegram_usernames
@@ -40,6 +40,11 @@ app.post('/register', async (req, res) => {
 
     const password_enc = encrypt(password);
 
+    const validUplines = ['Datta', 'Madras', 'Doctor'];
+    const selectedUpline = validUplines.includes(upline) ? upline : null;
+    const validCurrencies = ['INR', 'HKD'];
+    const selectedCurrency = validCurrencies.includes(currency_type) ? currency_type : 'INR';
+
     const client = await registerClient({
       name: username,
       username,
@@ -50,6 +55,8 @@ app.post('/register', async (req, res) => {
       sports: sports || 'All',
       book_view: book_view || 'Total Book',
       platform: selectedPlatform,
+      currency_type: selectedCurrency,
+      upline: selectedUpline,
     });
 
     // Store all recipients in alert_recipients table
