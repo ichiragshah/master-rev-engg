@@ -195,7 +195,7 @@ async function getClientsByChatId(chatId) {
   const { rows } = await pool.query(
     `SELECT c.* FROM clients c
      JOIN alert_recipients ar ON ar.client_id = c.id
-     WHERE ar.telegram_chat_id = $1 AND c.active = true`,
+     WHERE ar.telegram_chat_id = $1 AND c.active = true AND c.alert_type != 'test'`,
     [chatId]
   );
   return rows;
@@ -214,6 +214,7 @@ async function getActiveClientsForChatIds(chatIds) {
     SELECT DISTINCT c.* FROM clients c
     JOIN alert_recipients ar ON ar.client_id = c.id
     WHERE c.active = true
+      AND c.alert_type != 'test'
       AND ar.telegram_chat_id = ANY($1::bigint[])
   `, [chatIds]);
   return rows;

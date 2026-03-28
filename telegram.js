@@ -253,12 +253,17 @@ function exposureAlert(client, totalExposure, prevExposure, markets) {
   if (alertType !== 'exposure_only' && markets && markets.length > 0) {
     const maxMarkets = alertType === 'all' ? markets.length : 3;
     markets.slice(0, maxMarkets).forEach(m => {
-      marketLines += `\n🏏 <b>${m.eventName}</b>  •  ${m.marketName}\n`;
-      m.runners.forEach(r => {
-        const icon = r.exposure >= 0 ? '✅' : '🔴';
-        const sign = r.exposure >= 0 ? '+' : '-';
-        marketLines += `   ${r.name.padEnd(20)} ${sign}${fmt(r.exposure)}  ${icon}\n`;
-      });
+      if (m.runners.length === 0) {
+        const icon = m.netExposure >= 0 ? '🔴' : '✅';
+        marketLines += `\n🏏 <b>${m.eventName}</b>  •  ${m.marketName}  •  ${fmt(m.netExposure)} ${icon}\n`;
+      } else {
+        marketLines += `\n🏏 <b>${m.eventName}</b>  •  ${m.marketName}\n`;
+        m.runners.forEach(r => {
+          const icon = r.exposure >= 0 ? '✅' : '🔴';
+          const sign = r.exposure >= 0 ? '+' : '-';
+          marketLines += `   ${r.name.padEnd(20)} ${sign}${fmt(r.exposure)}  ${icon}\n`;
+        });
+      }
     });
     marketLines += '━━━━━━━━━━━━━━━━━━━━';
   }
