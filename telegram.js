@@ -311,6 +311,36 @@ async function handleUpdate(update) {
   await sendMessage(chatId, 'Unknown command.\n\n/chalu \u2014 Start monitoring\n/khatam \u2014 Stop monitoring\n/status \u2014 Live exposure\n/credit \u2014 Client credit report\n/ping \u2014 Check response time\n/help \u2014 All commands');
 }
 
+function formatClientReport(username, platform, clients, time, date, fmtNum) {
+  let totalAvail = 0;
+  let totalPnl = 0;
+  let playerLines = '';
+
+  for (let i = 0; i < clients.length; i++) {
+    const m = clients[i];
+    const pl = -m.winnings;
+    totalAvail += m.availableCredit;
+    totalPnl += pl;
+
+    const plStr = pl === 0 ? '0' : (pl > 0 ? `+${fmtNum(pl)}` : `-${fmtNum(pl)}`);
+    const plIcon = pl < 0 ? ' 🔴' : '';
+
+    playerLines += `<b>${m.username}</b>\n`;
+    playerLines += `💳 ${fmtNum(m.creditLimit)}  •  ✅ ${fmtNum(m.availableCredit)}  •  P&L: ${plStr}${plIcon}\n`;
+    if (i < clients.length - 1) playerLines += '\n';
+  }
+
+  const totalPlStr = totalPnl === 0 ? '0' : (totalPnl > 0 ? `+${fmtNum(totalPnl)}` : `-${fmtNum(totalPnl)}`);
+  const totalPlIcon = totalPnl < 0 ? ' 🔴' : '';
+
+  return `👥 <b>${username}</b>  •  ${platform}  •  ${time}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    playerLines +
+    `\n━━━━━━━━━━━━━━━━━━━━\n` +
+    `💰 Avail: ${fmtNum(totalAvail)}  •  P&L: ${totalPlStr}${totalPlIcon}\n` +
+    `👥 ${clients.length} players  •  ${date}`;
+}
+
 async function handleCreditFetch(chatId, clientId) {
   const { pool } = require('./db');
   const { ensureToken } = require('./auth');
@@ -345,48 +375,13 @@ async function handleCreditFetch(chatId, clientId) {
       return;
     }
 
-    let totalAvail = 0;
-    let totalPnl = 0;
-    let lines = '';
+    const now = new Date();
+    const time = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase();
+    const date = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: '2-digit', month: 'short' });
+    const platformLabel = platform.name || c.platform || 'Winner7';
+    const fmtNum = n => Math.abs(Math.round(n)).toLocaleString('en-IN');
 
-    for (let i = 0; i < members.length; i++) {
-      const m = members[i];
-      const masterPnl = -m.winnings;
-      totalAvail += m.availableCredit;
-      totalPnl += masterPnl;
-
-      let pnlStr;
-      if (masterPnl > 0) {
-        pnlStr = `+${fmt(masterPnl)} Take`;
-      } else if (masterPnl < 0) {
-        pnlStr = `-${fmt(masterPnl)} Give`;
-      } else {
-        pnlStr = '0';
-      }
-
-      const statusIcon = m.status === 'Active' ? '' : ' (off)';
-      lines += `${i + 1}. <b>${m.username}</b>${statusIcon}\n`;
-      lines += `   Credit: ${fmt(m.creditLimit)} | Avail: ${fmt(m.availableCredit)}\n`;
-      lines += `   Exp: ${fmt(m.netExposure)} | P&L: ${pnlStr}\n`;
-    }
-
-    let totalPnlStr;
-    if (totalPnl > 0) {
-      totalPnlStr = `+${fmt(totalPnl)} Take`;
-    } else if (totalPnl < 0) {
-      totalPnlStr = `-${fmt(totalPnl)} Give`;
-    } else {
-      totalPnlStr = '0';
-    }
-
-    let msg = `📊 <b>Clients — ${c.username}</b> (Winner7)\n`;
-    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += lines;
-    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `💰 Total Avail: <b>${fmt(totalAvail)}</b>\n`;
-    msg += `📈 Net P&L: <b>${totalPnlStr}</b>\n`;
-    msg += `👥 Players: ${members.length}\n`;
-    msg += `🕐 ${timeIST()}`;
+    const msg = formatClientReport(c.username, platformLabel, members, time, date, fmtNum);
 
     await sendMessage(chatId, msg);
     log('INFO', 'Credit fetched', { chatId, username: c.username, playerCount: members.length });
