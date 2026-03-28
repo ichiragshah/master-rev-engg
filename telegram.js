@@ -26,7 +26,7 @@ async function setWebhook(appUrl) {
   const res = await fetch(`${API()}/setWebhook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, allowed_updates: ['message'] }),
+    body: JSON.stringify({ url, allowed_updates: ['message', 'callback_query'] }),
   });
   const json = await res.json();
   log('INFO', 'Webhook set', { url, ok: json.ok, description: json.description });
@@ -47,6 +47,35 @@ async function sendMessage(chatId, text) {
     log('INFO', 'Message sent', { chatId });
   } catch (err) {
     log('ERROR', 'Send failed', { chatId, error: err.message });
+  }
+}
+
+async function sendMessageWithButtons(chatId, text, buttons) {
+  try {
+    await fetch(`${API()}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: buttons },
+      }),
+    });
+  } catch (err) {
+    log('ERROR', 'Send with buttons failed', { chatId, error: err.message });
+  }
+}
+
+async function answerCallbackQuery(callbackQueryId, text) {
+  try {
+    await fetch(`${API()}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+    });
+  } catch (err) {
+    log('ERROR', 'Answer callback failed', { error: err.message });
   }
 }
 
@@ -75,6 +104,7 @@ function onboardingMessage() {
 /khatam — Stop monitoring
 /status — Live exposure + system info
 /check — Same as /status
+/credit — Client credit report
 /ping — Check bot response time
 /help — Show this message
 
@@ -87,6 +117,22 @@ function onboardingMessage() {
 }
 
 async function handleUpdate(update) {
+  // Handle callback queries (inline button presses)
+  if (update.callback_query) {
+    const cb = update.callback_query;
+    const chatId = cb.message.chat.id;
+    const data = cb.data || '';
+
+    log('INFO', 'Callback received', { updateId: update.update_id, chatId, data });
+
+    if (data.startsWith('credit:')) {
+      const clientId = parseInt(data.split(':')[1], 10);
+      await answerCallbackQuery(cb.id, 'Fetching...');
+      await handleCreditFetch(chatId, clientId);
+    }
+    return;
+  }
+
   const msg = update.message;
   if (!msg || !msg.text) return;
 
@@ -237,7 +283,117 @@ async function handleUpdate(update) {
     return;
   }
 
-  await sendMessage(chatId, 'Unknown command.\n\n/chalu — Start monitoring\n/khatam — Stop monitoring\n/status — Live exposure\n/ping — Check response time\n/help — All commands');
+  if (text === '/credit') {
+    const clients = await getClientsByChatId(chatId);
+    const winner7Clients = clients.filter(c => (c.platform || 'winner7') === 'winner7');
+
+    if (winner7Clients.length === 0) {
+      await sendMessage(chatId, 'No Winner7 accounts linked. This command currently works for Winner7 only.');
+      return;
+    }
+
+    if (winner7Clients.length === 1) {
+      // Only one master — fetch directly
+      await handleCreditFetch(chatId, winner7Clients[0].id);
+    } else {
+      // Multiple masters — show selection buttons
+      const buttons = winner7Clients.map(c => ([{
+        text: `${c.username} (Winner7)`,
+        callback_data: `credit:${c.id}`,
+      }]));
+      await sendMessageWithButtons(chatId, 'Select a master account:', buttons);
+    }
+
+    log('INFO', 'Command handled', { chatId, command: '/credit', clientCount: winner7Clients.length });
+    return;
+  }
+
+  await sendMessage(chatId, 'Unknown command.\n\n/chalu \u2014 Start monitoring\n/khatam \u2014 Stop monitoring\n/status \u2014 Live exposure\n/credit \u2014 Client credit report\n/ping \u2014 Check response time\n/help \u2014 All commands');
+}
+
+async function handleCreditFetch(chatId, clientId) {
+  const { pool } = require('./db');
+  const { ensureToken } = require('./auth');
+  const { proxyPost } = require('./proxy-fetch');
+
+  const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [clientId]);
+  const c = rows[0];
+  if (!c) {
+    await sendMessage(chatId, 'Client not found.');
+    return;
+  }
+
+  const platform = PLATFORMS[c.platform || 'winner7'];
+  if (!platform.memberDataUrl) {
+    await sendMessage(chatId, `Credit report not supported for ${platform.name || c.platform}.`);
+    return;
+  }
+
+  try {
+    const { token } = await ensureToken(c);
+    const res = await proxyPost(
+      platform.memberDataUrl,
+      platform.memberDataBody(token),
+      platform.authHeader(token),
+      c.platform || 'winner7'
+    );
+    const json = res.json();
+    const members = platform.parseMemberData(json);
+
+    if (members.length === 0) {
+      await sendMessage(chatId, `📊 <b>${c.username}</b> — No players found`);
+      return;
+    }
+
+    let totalAvail = 0;
+    let totalPnl = 0;
+    let lines = '';
+
+    for (let i = 0; i < members.length; i++) {
+      const m = members[i];
+      const masterPnl = -m.winnings;
+      totalAvail += m.availableCredit;
+      totalPnl += masterPnl;
+
+      let pnlStr;
+      if (masterPnl > 0) {
+        pnlStr = `+${fmt(masterPnl)} Take`;
+      } else if (masterPnl < 0) {
+        pnlStr = `-${fmt(masterPnl)} Give`;
+      } else {
+        pnlStr = '0';
+      }
+
+      const statusIcon = m.status === 'Active' ? '' : ' (off)';
+      lines += `${i + 1}. <b>${m.username}</b>${statusIcon}\n`;
+      lines += `   Credit: ${fmt(m.creditLimit)} | Avail: ${fmt(m.availableCredit)}\n`;
+      lines += `   Exp: ${fmt(m.netExposure)} | P&L: ${pnlStr}\n`;
+    }
+
+    let totalPnlStr;
+    if (totalPnl > 0) {
+      totalPnlStr = `+${fmt(totalPnl)} Take`;
+    } else if (totalPnl < 0) {
+      totalPnlStr = `-${fmt(totalPnl)} Give`;
+    } else {
+      totalPnlStr = '0';
+    }
+
+    let msg = `📊 <b>Clients — ${c.username}</b> (Winner7)\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += lines;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `💰 Total Avail: <b>${fmt(totalAvail)}</b>\n`;
+    msg += `📈 Net P&L: <b>${totalPnlStr}</b>\n`;
+    msg += `👥 Players: ${members.length}\n`;
+    msg += `🕐 ${timeIST()}`;
+
+    await sendMessage(chatId, msg);
+    log('INFO', 'Credit fetched', { chatId, username: c.username, playerCount: members.length });
+  } catch (err) {
+    await sendMessage(chatId, `📊 <b>${c.username}</b> — Error: ${err.message}`);
+    log('ERROR', 'Credit fetch failed', { chatId, username: c.username, error: err.message });
+  }
 }
 
 function exposureAlert(client, totalExposure, prevExposure, markets) {
