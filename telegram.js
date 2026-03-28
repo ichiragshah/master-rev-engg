@@ -285,22 +285,23 @@ async function handleUpdate(update) {
 
   if (text === '/credit') {
     const clients = await getClientsByChatId(chatId);
-    const winner7Clients = clients.filter(c => (c.platform || 'winner7') === 'winner7');
+    const supportedClients = clients.filter(c => {
+      const p = PLATFORMS[c.platform || 'winner7'];
+      return p && p.memberDataUrl;
+    });
 
-    if (winner7Clients.length === 0) {
-      await sendMessage(chatId, 'No Winner7 accounts linked. This command currently works for Winner7 only.');
+    if (supportedClients.length === 0) {
+      await sendMessage(chatId, 'No accounts with credit report support linked.');
       return;
     }
 
-    if (winner7Clients.length === 1) {
-      // Only one master — fetch directly
-      await handleCreditFetch(chatId, winner7Clients[0].id);
+    if (supportedClients.length === 1) {
+      await handleCreditFetch(chatId, supportedClients[0].id);
     } else {
-      // Multiple masters — show selection buttons
-      const buttons = winner7Clients.map(c => ([{
-        text: `${c.username} (Winner7)`,
-        callback_data: `credit:${c.id}`,
-      }]));
+      const buttons = supportedClients.map(c => {
+        const label = PLATFORMS[c.platform || 'winner7']?.name || c.platform;
+        return [{ text: `${c.username} (${label})`, callback_data: `credit:${c.id}` }];
+      });
       await sendMessageWithButtons(chatId, 'Select a master account:', buttons);
     }
 
@@ -344,7 +345,7 @@ function formatClientReport(username, platform, clients, time, date, fmtNum) {
 async function handleCreditFetch(chatId, clientId) {
   const { pool } = require('./db');
   const { ensureToken } = require('./auth');
-  const { proxyPost } = require('./proxy-fetch');
+  const { proxyPost, proxyGet } = require('./proxy-fetch');
 
   const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [clientId]);
   const c = rows[0];
@@ -353,20 +354,28 @@ async function handleCreditFetch(chatId, clientId) {
     return;
   }
 
-  const platform = PLATFORMS[c.platform || 'winner7'];
+  const platformName = c.platform || 'winner7';
+  const platform = PLATFORMS[platformName];
   if (!platform.memberDataUrl) {
-    await sendMessage(chatId, `Credit report not supported for ${platform.name || c.platform}.`);
+    await sendMessage(chatId, `Credit report not supported for ${platform.name || platformName}.`);
     return;
   }
 
   try {
     const { token } = await ensureToken(c);
-    const res = await proxyPost(
-      platform.memberDataUrl,
-      platform.memberDataBody(token),
-      platform.authHeader(token),
-      c.platform || 'winner7'
-    );
+
+    const url = typeof platform.memberDataUrl === 'function'
+      ? platform.memberDataUrl(c)
+      : platform.memberDataUrl;
+
+    let res;
+    if (platform.memberDataMethod === 'GET') {
+      const headers = { ...platform.authHeader(token) };
+      if (platform.memberDataExtraHeaders) Object.assign(headers, platform.memberDataExtraHeaders(c));
+      res = await proxyGet(url, headers, platformName);
+    } else {
+      res = await proxyPost(url, platform.memberDataBody(token), platform.authHeader(token), platformName);
+    }
     const json = res.json();
     const members = platform.parseMemberData(json);
 

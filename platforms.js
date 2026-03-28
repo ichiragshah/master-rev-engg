@@ -260,6 +260,29 @@ const PLATFORMS = {
       return null;
     },
 
+    memberDataMethod: 'GET',
+
+    memberDataUrl(client) {
+      return `https://admin.lotusbookx247.com/api/agency/${client.user_id}/agency-mgmt/downline?parent=${client.user_id}&start=0&size=100`;
+    },
+
+    memberDataExtraHeaders(client) {
+      return { 'x-user-id': client.user_id };
+    },
+
+    parseMemberData(json) {
+      const downline = json.result?.downline || [];
+      return downline.map(d => ({
+        username: d.user?.loginName || d.user?.name || 'Unknown',
+        displayName: d.user?.loginName || d.user?.name || 'Unknown',
+        creditLimit: d.account?.creditLimit || 0,
+        netExposure: d.account?.actualNetExposure || 0,
+        winnings: d.account?.settledBalance || 0,
+        availableCredit: d.account?.availableBalance || 0,
+        status: d.user?.status === 'ACTIVE' ? 'Active' : d.user?.status || 'Unknown',
+      }));
+    },
+
     isSessionExpired(json) {
       return !json.success && (
         json.status?.statusCode === '401' ||
