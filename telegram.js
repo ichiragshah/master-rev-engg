@@ -96,6 +96,13 @@ function fmt(n) {
   return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
 }
 
+function clientLabel(c) {
+  const parts = [c.username];
+  const meta = [c.upline, c.currency_type].filter(Boolean);
+  if (meta.length > 0) parts.push(`(${meta.join(' - ')})`);
+  return parts.join(' ');
+}
+
 function onboardingMessage() {
   return `<b>Welcome to Winner7 Monitor!</b>
 
@@ -182,7 +189,7 @@ async function handleUpdate(update) {
     let clientLines = '';
     for (const c of clients) {
       const platformLabel = PLATFORMS[c.platform]?.name || c.platform || 'Winner7';
-      clientLines += `\n👤 <b>${c.username}</b> — ${platformLabel}\n   Threshold: ${fmt(c.threshold)} | ${c.book_view || 'Total Book'} | ${c.sports || 'All'}`;
+      clientLines += `\n👤 <b>${clientLabel(c)}</b> — ${platformLabel}\n   Threshold: ${fmt(c.threshold)} | ${c.book_view || 'Total Book'} | ${c.sports || 'All'}`;
     }
 
     const response = `✅ <b>Monitoring Started</b>\n${clientLines}\n\n🕐 Started at ${timeIST()}\n⏱ Polling every 60s\n\nSend /khatam to stop.`;
@@ -207,7 +214,7 @@ async function handleUpdate(update) {
     let clientLines = '';
     for (const c of clients) {
       const platformLabel = PLATFORMS[c.platform]?.name || c.platform || 'Winner7';
-      clientLines += `\n👤 ${c.username} — ${platformLabel}`;
+      clientLines += `\n👤 ${clientLabel(c)} — ${platformLabel}`;
     }
 
     stopPolling(chatId);
@@ -261,7 +268,7 @@ async function handleUpdate(update) {
         }
       }
 
-      lines += `📊 <b>Status</b>  •  ${c.username}  •  ${platformLabel}\n`;
+      lines += `📊 <b>Status</b>  •  ${clientLabel(c)}  •  ${platformLabel}\n`;
       lines += `━━━━━━━━━━━━━━━━━━━━\n`;
       lines += `${exposureLine}\n`;
       lines += `📈 Last poll: ${lastPollStr}\n`;
@@ -300,7 +307,7 @@ async function handleUpdate(update) {
     } else {
       const buttons = supportedClients.map(c => {
         const label = PLATFORMS[c.platform || 'winner7']?.name || c.platform;
-        return [{ text: `${c.username} (${label})`, callback_data: `credit:${c.id}` }];
+        return [{ text: `${clientLabel(c)} (${label})`, callback_data: `credit:${c.id}` }];
       });
       await sendMessageWithButtons(chatId, 'Select a master account:', buttons);
     }
@@ -380,7 +387,7 @@ async function handleCreditFetch(chatId, clientId) {
     const members = platform.parseMemberData(json);
 
     if (members.length === 0) {
-      await sendMessage(chatId, `📊 <b>${c.username}</b> — No players found`);
+      await sendMessage(chatId, `📊 <b>${clientLabel(c)}</b> — No players found`);
       return;
     }
 
@@ -390,12 +397,12 @@ async function handleCreditFetch(chatId, clientId) {
     const platformLabel = platform.name || c.platform || 'Winner7';
     const fmtNum = n => Math.abs(Math.round(n)).toLocaleString('en-IN');
 
-    const msg = formatClientReport(c.username, platformLabel, members, time, date, fmtNum);
+    const msg = formatClientReport(clientLabel(c), platformLabel, members, time, date, fmtNum);
 
     await sendMessage(chatId, msg);
     log('INFO', 'Credit fetched', { chatId, username: c.username, playerCount: members.length });
   } catch (err) {
-    await sendMessage(chatId, `📊 <b>${c.username}</b> — Error: ${err.message}`);
+    await sendMessage(chatId, `📊 <b>${clientLabel(c)}</b> — Error: ${err.message}`);
     log('ERROR', 'Credit fetch failed', { chatId, username: c.username, error: err.message });
   }
 }
@@ -432,7 +439,7 @@ function exposureAlert(client, totalExposure, prevExposure, markets) {
 
   return `🚨 <b>EXPOSURE ALERT</b>
 
-👤 ${client.username}  •  ${platformLabel}  •  ${client.book_view || 'Total Book'}
+👤 ${clientLabel(client)}  •  ${platformLabel}  •  ${client.book_view || 'Total Book'}
 ━━━━━━━━━━━━━━━━━━━━
 💰 Net Exposure    <b>${fmt(totalExposure)}</b>
 ${changeStr}━━━━━━━━━━━━━━━━━━━━

@@ -31,6 +31,8 @@ async function initDB() {
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS sports VARCHAR(200) DEFAULT 'All'`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS book_view VARCHAR(20) DEFAULT 'Total Book'`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS platform VARCHAR(20) DEFAULT 'winner7'`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS currency_type VARCHAR(10) DEFAULT 'INR'`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS upline VARCHAR(50)`);
 
   // Migrate unique constraint: drop old username-only, add (username, platform)
   await pool.query(`
@@ -91,10 +93,10 @@ async function getAllActiveClients() {
 }
 
 async function registerClient(data) {
-  const { name, username, password_enc, telegram_username, threshold, alert_type, sports, book_view, platform } = data;
+  const { name, username, password_enc, telegram_username, threshold, alert_type, sports, book_view, platform, currency_type, upline } = data;
   const { rows } = await pool.query(
-    `INSERT INTO clients (name, username, password_enc, telegram_username, threshold, alert_type, sports, book_view, platform)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO clients (name, username, password_enc, telegram_username, threshold, alert_type, sports, book_view, platform, currency_type, upline)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (username, platform) DO UPDATE SET
        name = EXCLUDED.name,
        password_enc = EXCLUDED.password_enc,
@@ -102,9 +104,11 @@ async function registerClient(data) {
        threshold = EXCLUDED.threshold,
        alert_type = EXCLUDED.alert_type,
        sports = EXCLUDED.sports,
-       book_view = EXCLUDED.book_view
+       book_view = EXCLUDED.book_view,
+       currency_type = EXCLUDED.currency_type,
+       upline = EXCLUDED.upline
      RETURNING id, username, platform`,
-    [name, username, password_enc, telegram_username, threshold ?? 0, alert_type || 'exposure_only', sports || 'All', book_view || 'Total Book', platform || 'winner7']
+    [name, username, password_enc, telegram_username, threshold ?? 0, alert_type || 'exposure_only', sports || 'All', book_view || 'Total Book', platform || 'winner7', currency_type || 'INR', upline || null]
   );
   log('INFO', 'Client registered/updated', { username, platform: platform || 'winner7' });
   return rows[0];
@@ -203,7 +207,7 @@ async function getClientsByChatId(chatId) {
 
 async function getAllClients() {
   const { rows } = await pool.query(
-    'SELECT id, name, username, telegram_chat_id, telegram_username, threshold, alert_type, sports, book_view, platform, active, user_id, created_at FROM clients'
+    'SELECT id, name, username, telegram_chat_id, telegram_username, threshold, alert_type, sports, book_view, platform, currency_type, upline, active, user_id, created_at FROM clients'
   );
   return rows;
 }
