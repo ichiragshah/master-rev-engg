@@ -144,7 +144,7 @@ async function handleUpdate(update) {
   if (!msg || !msg.text) return;
 
   const chatId = msg.chat.id;
-  const text = msg.text.trim();
+  const text = msg.text.trim().replace(/@\w+/i, '');
   const tgUsername = msg.from.username || '';
 
   log('INFO', 'Webhook received', { updateId: update.update_id, chatId, command: text });
