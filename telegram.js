@@ -285,22 +285,23 @@ async function handleUpdate(update) {
 
   if (text === '/credit') {
     const clients = await getClientsByChatId(chatId);
-    const winner7Clients = clients.filter(c => (c.platform || 'winner7') === 'winner7');
+    const supportedClients = clients.filter(c => {
+      const p = PLATFORMS[c.platform || 'winner7'];
+      return p && p.memberDataUrl;
+    });
 
-    if (winner7Clients.length === 0) {
-      await sendMessage(chatId, 'No Winner7 accounts linked. This command currently works for Winner7 only.');
+    if (supportedClients.length === 0) {
+      await sendMessage(chatId, 'No accounts with credit report support linked.');
       return;
     }
 
-    if (winner7Clients.length === 1) {
-      // Only one master — fetch directly
-      await handleCreditFetch(chatId, winner7Clients[0].id);
+    if (supportedClients.length === 1) {
+      await handleCreditFetch(chatId, supportedClients[0].id);
     } else {
-      // Multiple masters — show selection buttons
-      const buttons = winner7Clients.map(c => ([{
-        text: `${c.username} (Winner7)`,
-        callback_data: `credit:${c.id}`,
-      }]));
+      const buttons = supportedClients.map(c => {
+        const label = PLATFORMS[c.platform || 'winner7']?.name || c.platform;
+        return [{ text: `${c.username} (${label})`, callback_data: `credit:${c.id}` }];
+      });
       await sendMessageWithButtons(chatId, 'Select a master account:', buttons);
     }
 
@@ -311,10 +312,40 @@ async function handleUpdate(update) {
   await sendMessage(chatId, 'Unknown command.\n\n/chalu \u2014 Start monitoring\n/khatam \u2014 Stop monitoring\n/status \u2014 Live exposure\n/credit \u2014 Client credit report\n/ping \u2014 Check response time\n/help \u2014 All commands');
 }
 
+function formatClientReport(username, platform, clients, time, date, fmtNum) {
+  let totalAvail = 0;
+  let totalPnl = 0;
+  let playerLines = '';
+
+  for (let i = 0; i < clients.length; i++) {
+    const m = clients[i];
+    const pl = -m.winnings;
+    totalAvail += m.availableCredit;
+    totalPnl += pl;
+
+    const plStr = pl === 0 ? '0' : (pl > 0 ? `+${fmtNum(pl)}` : `-${fmtNum(pl)}`);
+    const plIcon = pl < 0 ? ' 🔴' : '';
+
+    playerLines += `<b>${m.username}</b>\n`;
+    playerLines += `💳 ${fmtNum(m.creditLimit)}  •  ✅ ${fmtNum(m.availableCredit)}  •  P&L: ${plStr}${plIcon}\n`;
+    if (i < clients.length - 1) playerLines += '\n';
+  }
+
+  const totalPlStr = totalPnl === 0 ? '0' : (totalPnl > 0 ? `+${fmtNum(totalPnl)}` : `-${fmtNum(totalPnl)}`);
+  const totalPlIcon = totalPnl < 0 ? ' 🔴' : '';
+
+  return `👥 <b>${username}</b>  •  ${platform}  •  ${time}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    playerLines +
+    `\n━━━━━━━━━━━━━━━━━━━━\n` +
+    `💰 Avail: ${fmtNum(totalAvail)}  •  P&L: ${totalPlStr}${totalPlIcon}\n` +
+    `👥 ${clients.length} players  •  ${date}`;
+}
+
 async function handleCreditFetch(chatId, clientId) {
   const { pool } = require('./db');
   const { ensureToken } = require('./auth');
-  const { proxyPost } = require('./proxy-fetch');
+  const { proxyPost, proxyGet } = require('./proxy-fetch');
 
   const { rows } = await pool.query('SELECT * FROM clients WHERE id = $1', [clientId]);
   const c = rows[0];
@@ -323,20 +354,28 @@ async function handleCreditFetch(chatId, clientId) {
     return;
   }
 
-  const platform = PLATFORMS[c.platform || 'winner7'];
+  const platformName = c.platform || 'winner7';
+  const platform = PLATFORMS[platformName];
   if (!platform.memberDataUrl) {
-    await sendMessage(chatId, `Credit report not supported for ${platform.name || c.platform}.`);
+    await sendMessage(chatId, `Credit report not supported for ${platform.name || platformName}.`);
     return;
   }
 
   try {
     const { token } = await ensureToken(c);
-    const res = await proxyPost(
-      platform.memberDataUrl,
-      platform.memberDataBody(token),
-      platform.authHeader(token),
-      c.platform || 'winner7'
-    );
+
+    const url = typeof platform.memberDataUrl === 'function'
+      ? platform.memberDataUrl(c)
+      : platform.memberDataUrl;
+
+    let res;
+    if (platform.memberDataMethod === 'GET') {
+      const headers = { ...platform.authHeader(token) };
+      if (platform.memberDataExtraHeaders) Object.assign(headers, platform.memberDataExtraHeaders(c));
+      res = await proxyGet(url, headers, platformName);
+    } else {
+      res = await proxyPost(url, platform.memberDataBody(c, token), platform.authHeader(token), platformName);
+    }
     const json = res.json();
     const members = platform.parseMemberData(json);
 
@@ -345,48 +384,13 @@ async function handleCreditFetch(chatId, clientId) {
       return;
     }
 
-    let totalAvail = 0;
-    let totalPnl = 0;
-    let lines = '';
+    const now = new Date();
+    const time = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase();
+    const date = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: '2-digit', month: 'short' });
+    const platformLabel = platform.name || c.platform || 'Winner7';
+    const fmtNum = n => Math.abs(Math.round(n)).toLocaleString('en-IN');
 
-    for (let i = 0; i < members.length; i++) {
-      const m = members[i];
-      const masterPnl = -m.winnings;
-      totalAvail += m.availableCredit;
-      totalPnl += masterPnl;
-
-      let pnlStr;
-      if (masterPnl > 0) {
-        pnlStr = `+${fmt(masterPnl)} Take`;
-      } else if (masterPnl < 0) {
-        pnlStr = `-${fmt(masterPnl)} Give`;
-      } else {
-        pnlStr = '0';
-      }
-
-      const statusIcon = m.status === 'Active' ? '' : ' (off)';
-      lines += `${i + 1}. <b>${m.username}</b>${statusIcon}\n`;
-      lines += `   Credit: ${fmt(m.creditLimit)} | Avail: ${fmt(m.availableCredit)}\n`;
-      lines += `   Exp: ${fmt(m.netExposure)} | P&L: ${pnlStr}\n`;
-    }
-
-    let totalPnlStr;
-    if (totalPnl > 0) {
-      totalPnlStr = `+${fmt(totalPnl)} Take`;
-    } else if (totalPnl < 0) {
-      totalPnlStr = `-${fmt(totalPnl)} Give`;
-    } else {
-      totalPnlStr = '0';
-    }
-
-    let msg = `📊 <b>Clients — ${c.username}</b> (Winner7)\n`;
-    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += lines;
-    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-    msg += `💰 Total Avail: <b>${fmt(totalAvail)}</b>\n`;
-    msg += `📈 Net P&L: <b>${totalPnlStr}</b>\n`;
-    msg += `👥 Players: ${members.length}\n`;
-    msg += `🕐 ${timeIST()}`;
+    const msg = formatClientReport(c.username, platformLabel, members, time, date, fmtNum);
 
     await sendMessage(chatId, msg);
     log('INFO', 'Credit fetched', { chatId, username: c.username, playerCount: members.length });

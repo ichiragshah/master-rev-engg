@@ -53,7 +53,7 @@ const PLATFORMS = {
       };
     },
 
-    memberDataBody(token) {
+    memberDataBody(client, token) {
       return { page: 1, type: '', keyword: '', _accessToken: token };
     },
 
@@ -219,6 +219,25 @@ const PLATFORMS = {
         })
       );
     },
+
+    memberDataUrl: 'https://adminapi.winzone.uk/user/listuser',
+
+    memberDataBody(client, token) {
+      return { page: 1, limit: 50, userId: client.user_id, site: 'All' };
+    },
+
+    parseMemberData(json) {
+      const users = json.data?.users || [];
+      return users.map(u => ({
+        username: u.username,
+        displayName: u.username,
+        creditLimit: u.wallet?.credit || 0,
+        netExposure: u.wallet?.netexposure || 0,
+        winnings: u.wallet?.winnings || 0,
+        availableCredit: u.wallet?.balance || 0,
+        status: u.status || 'Unknown',
+      }));
+    },
   },
 
   lotus: {
@@ -258,6 +277,29 @@ const PLATFORMS = {
 
     marketsBody() {
       return null;
+    },
+
+    memberDataMethod: 'GET',
+
+    memberDataUrl(client) {
+      return `https://admin.lotusbookx247.com/api/agency/${client.user_id}/agency-mgmt/downline?parent=${client.user_id}&start=0&size=100`;
+    },
+
+    memberDataExtraHeaders(client) {
+      return { 'x-user-id': client.user_id };
+    },
+
+    parseMemberData(json) {
+      const downline = json.result?.downline || [];
+      return downline.map(d => ({
+        username: d.user?.loginName || d.user?.name || 'Unknown',
+        displayName: d.user?.loginName || d.user?.name || 'Unknown',
+        creditLimit: d.account?.creditLimit || 0,
+        netExposure: d.account?.actualNetExposure || 0,
+        winnings: d.account?.settledBalance || 0,
+        availableCredit: d.account?.availableBalance || 0,
+        status: d.user?.status === 'ACTIVE' ? 'Active' : d.user?.status || 'Unknown',
+      }));
     },
 
     isSessionExpired(json) {
