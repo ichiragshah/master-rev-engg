@@ -374,7 +374,7 @@ async function handleCreditFetch(chatId, clientId) {
       if (platform.memberDataExtraHeaders) Object.assign(headers, platform.memberDataExtraHeaders(c));
       res = await proxyGet(url, headers, platformName);
     } else {
-      res = await proxyPost(url, platform.memberDataBody(token), platform.authHeader(token), platformName);
+      res = await proxyPost(url, platform.memberDataBody(c, token), platform.authHeader(token), platformName);
     }
     const json = res.json();
     const members = platform.parseMemberData(json);

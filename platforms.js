@@ -53,7 +53,7 @@ const PLATFORMS = {
       };
     },
 
-    memberDataBody(token) {
+    memberDataBody(client, token) {
       return { page: 1, type: '', keyword: '', _accessToken: token };
     },
 
@@ -218,6 +218,25 @@ const PLATFORMS = {
           };
         })
       );
+    },
+
+    memberDataUrl: 'https://adminapi.winzone.uk/user/listuser',
+
+    memberDataBody(client, token) {
+      return { page: 1, limit: 50, userId: client.user_id, site: 'All' };
+    },
+
+    parseMemberData(json) {
+      const users = json.data?.users || [];
+      return users.map(u => ({
+        username: u.username,
+        displayName: u.username,
+        creditLimit: u.wallet?.credit || 0,
+        netExposure: u.wallet?.netexposure || 0,
+        winnings: u.wallet?.winnings || 0,
+        availableCredit: u.wallet?.balance || 0,
+        status: u.status || 'Unknown',
+      }));
     },
   },
 
