@@ -33,6 +33,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS platform VARCHAR(20) DEFAULT 'winner7'`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS currency_type VARCHAR(10) DEFAULT 'INR'`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS upline VARCHAR(50)`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(100)`);
 
   // Migrate unique constraint: drop old username-only, add (username, platform)
   await pool.query(`

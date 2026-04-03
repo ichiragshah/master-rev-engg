@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { decrypt } = require('./crypto');
 const { updateClientToken } = require('./db');
 const { getPlatform } = require('./platforms');
@@ -5,14 +6,32 @@ const { proxyPost } = require('./proxy-fetch');
 
 const log = (level, msg, data = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, ctx: 'AUTH', msg, ...data }));
 
-async function login(username, password, platformName) {
+function generateTOTP(secretHex) {
+  const time = Math.floor(Date.now() / 1000 / 30);
+  const buf = Buffer.alloc(8);
+  buf.writeUInt32BE(0, 0);
+  buf.writeUInt32BE(time, 4);
+  const hmac = crypto.createHmac('sha1', Buffer.from(secretHex, 'hex'));
+  hmac.update(buf);
+  const h = hmac.digest();
+  const offset = h[h.length - 1] & 0x0f;
+  const code = (h.readUInt32BE(offset) & 0x7fffffff) % 1000000;
+  return code.toString().padStart(6, '0');
+}
+
+async function login(username, password, platformName, totpSecret) {
   const platform = getPlatform(platformName);
 
-  log('INFO', 'Login attempt', { username, platform: platformName });
+  log('INFO', 'Login attempt', { username, platform: platformName, has2FA: !!totpSecret });
+
+  const loginBody = platform.loginBody(username, password);
+  if (totpSecret && loginBody.twoFacCode !== undefined) {
+    loginBody.twoFacCode = generateTOTP(totpSecret);
+  }
 
   const res = await proxyPost(
     platform.loginUrl,
-    platform.loginBody(username, password),
+    loginBody,
     null,
     platformName
   );
@@ -44,7 +63,7 @@ async function ensureToken(client) {
   const platform = getPlatform(platformName);
   log('INFO', 'Token refresh', { username: client.username, platform: platformName });
   const password = decrypt(client.password_enc);
-  const { token, userId: loginUserId, exp } = await login(client.username, password, platformName);
+  const { token, userId: loginUserId, exp } = await login(client.username, password, platformName, client.totp_secret || null);
 
   let userId = loginUserId;
   if (!userId && platform.userDetailsUrl) {
