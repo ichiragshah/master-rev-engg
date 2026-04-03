@@ -34,6 +34,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS currency_type VARCHAR(10) DEFAULT 'INR'`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS upline VARCHAR(50)`);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(100)`);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS poll_interval INTEGER DEFAULT 30`);
 
   // Migrate unique constraint: drop old username-only, add (username, platform)
   await pool.query(`
@@ -78,7 +79,15 @@ async function initDB() {
     ON CONFLICT (client_id, telegram_username) DO NOTHING
   `);
 
-  log('INFO', 'clients + alert_recipients tables ready');
+  // --- polling_state table (survives deploys) ---
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS polling_state (
+      chat_id BIGINT PRIMARY KEY,
+      started_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  log('INFO', 'clients + alert_recipients + polling_state tables ready');
 }
 
 async function getAllActiveClients() {
@@ -176,6 +185,10 @@ async function updateClientConfig(chat_id, field, value) {
   );
 }
 
+async function updateClientPollInterval(clientId, seconds) {
+  await pool.query('UPDATE clients SET poll_interval = $1 WHERE id = $2', [seconds, clientId]);
+}
+
 async function setClientActive(chat_id, active) {
   await pool.query(
     'UPDATE clients SET active = $1 WHERE telegram_chat_id = $2',
@@ -248,6 +261,7 @@ module.exports = {
   updateClientToken,
   updateClientChatId,
   updateClientConfig,
+  updateClientPollInterval,
   setClientActive,
   getClientByChatId,
   getClientsByChatId,

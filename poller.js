@@ -19,7 +19,7 @@ function fmt(n) {
   return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
 }
 
-const POLL_INTERVAL = 30 * 1000;
+const BASE_TICK = 5 * 1000; // 5s resolution — each client has its own poll_interval
 const MAX_SESSION_MS = 8 * 60 * 60 * 1000;
 
 const lastExposures = new Map();
@@ -329,8 +329,19 @@ async function pollAll() {
   const clients = await getActiveClientsForChatIds(chatIds);
   if (clients.length === 0) return;
 
-  log('INFO', 'Cycle start', { activePollers: chatIds.length, clientCount: clients.length });
-  await Promise.allSettled(clients.map(c => pollClient(c)));
+  // Filter to clients whose poll_interval has elapsed since last poll
+  const now = Date.now();
+  const due = clients.filter(c => {
+    const key = clientKey(c);
+    const last = lastPollTimes.get(key) || 0;
+    const interval = (c.poll_interval || 30) * 1000;
+    return (now - last) >= interval;
+  });
+
+  if (due.length === 0) return;
+
+  log('INFO', 'Cycle start', { activePollers: chatIds.length, clientCount: clients.length, dueCount: due.length });
+  await Promise.allSettled(due.map(c => pollClient(c)));
 }
 
 function startPolling(chatId) {
@@ -344,8 +355,8 @@ function stopPolling(chatId) {
 }
 
 function startPoller() {
-  log('INFO', 'Poller starting', { intervalSec: POLL_INTERVAL / 1000 });
-  setInterval(pollAll, POLL_INTERVAL);
+  log('INFO', 'Poller starting', { baseTickSec: BASE_TICK / 1000 });
+  setInterval(pollAll, BASE_TICK);
 }
 
 module.exports = {
