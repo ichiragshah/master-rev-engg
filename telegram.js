@@ -5,6 +5,7 @@ const {
   getClientsByChatId,
   getRecipientsByClientId,
   getLinkedClientCount,
+  updateClientPollInterval,
 } = require('./db');
 const { PLATFORMS } = require('./platforms');
 
@@ -111,6 +112,7 @@ function onboardingMessage() {
 /khatam — Stop monitoring
 /status — Live exposure + system info
 /check — Same as /status
+/interval — Set poll speed (3-60s)
 /credit — Client credit report
 /ping — Check bot response time
 /help — Show this message
@@ -189,10 +191,11 @@ async function handleUpdate(update) {
     let clientLines = '';
     for (const c of clients) {
       const platformLabel = PLATFORMS[c.platform]?.name || c.platform || 'Winner7';
-      clientLines += `\n👤 <b>${clientLabel(c)}</b> — ${platformLabel}\n   Threshold: ${fmt(c.threshold)} | ${c.book_view || 'Total Book'} | ${c.sports || 'All'}`;
+      const intervalSec = c.poll_interval || 30;
+      clientLines += `\n👤 <b>${clientLabel(c)}</b> — ${platformLabel}\n   Threshold: ${fmt(c.threshold)} | ${c.book_view || 'Total Book'} | ${c.sports || 'All'} | Poll: ${intervalSec}s`;
     }
 
-    const response = `✅ <b>Monitoring Started</b>\n${clientLines}\n\n🕐 Started at ${timeIST()}\n⏱ Polling every 60s\n\nSend /khatam to stop.`;
+    const response = `✅ <b>Monitoring Started</b>\n${clientLines}\n\n🕐 Started at ${timeIST()}\n\nSend /khatam to stop. Use /interval to change poll speed.`;
     await sendMessage(chatId, response);
 
     log('INFO', 'Command handled', { chatId, command: '/chalu', clientCount: clients.length });
@@ -316,7 +319,29 @@ async function handleUpdate(update) {
     return;
   }
 
-  await sendMessage(chatId, 'Unknown command.\n\n/chalu \u2014 Start monitoring\n/khatam \u2014 Stop monitoring\n/status \u2014 Live exposure\n/credit \u2014 Client credit report\n/ping \u2014 Check response time\n/help \u2014 All commands');
+  if (text.startsWith('/interval')) {
+    const parts = text.split(/\s+/);
+    const seconds = parseInt(parts[1], 10);
+    if (!seconds || seconds < 3 || seconds > 60) {
+      await sendMessage(chatId, 'Usage: /interval <seconds>\nMin: 3, Max: 60\nExample: /interval 10');
+      return;
+    }
+
+    const clients = await getClientsByChatId(chatId);
+    if (clients.length === 0) {
+      await sendMessage(chatId, 'No active clients linked to your account.');
+      return;
+    }
+
+    await Promise.all(clients.map(c => updateClientPollInterval(c.id, seconds)));
+
+    const names = clients.map(c => clientLabel(c)).join(', ');
+    await sendMessage(chatId, `Poll interval set to <b>${seconds}s</b> for: ${names}`);
+    log('INFO', 'Command handled', { chatId, command: '/interval', seconds, clientCount: clients.length });
+    return;
+  }
+
+  await sendMessage(chatId, 'Unknown command.\n\n/chalu \u2014 Start monitoring\n/khatam \u2014 Stop monitoring\n/status \u2014 Live exposure\n/interval \u2014 Set poll interval\n/credit \u2014 Client credit report\n/ping \u2014 Check response time\n/help \u2014 All commands');
 }
 
 function formatClientReport(username, platform, clients, time, date, fmtNum) {
